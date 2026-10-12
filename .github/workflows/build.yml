@@ -31,7 +31,8 @@ jobs:
         run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
 
       - name: Check the manifest version matches the tag
-        run: grep -q "\"version\": \"${TAG#v}\"" kiosk-satellite-plugin.json
+        run: |
+          grep -q "\"version\": \"${TAG#v}\"" kiosk-satellite-plugin.json
 
       - uses: actions/setup-java@v4
         with:
