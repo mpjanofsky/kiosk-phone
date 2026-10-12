@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+*.log
+.gradle/
+build/
+out/
+.local/
+
+# Signing material
+*.jks
+*.keystore
+keystore.properties

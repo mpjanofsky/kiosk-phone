@@ -1,0 +1,15 @@
+name: Idea or feature request
+description: Suggest something the plugin could do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like it to do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What are you trying to accomplish?
+      description: Knowing the goal helps find the simplest way to get there.

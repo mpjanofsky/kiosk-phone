@@ -1,0 +1,40 @@
+name: Bug report
+description: Something doesn't work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please leave out passwords, intercom keys and your public IP address. Private addresses are fine to describe ("the PBX on the same LAN").
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: input
+    id: plugin
+    attributes:
+      label: Plugin version
+      placeholder: "0.5.0"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and Kiosk Satellite version
+      placeholder: "Echo Show 5, Kiosk Satellite x.y"
+    validations:
+      required: true
+  - type: input
+    id: pbx
+    attributes:
+      label: PBX and version
+      placeholder: "FreePBX 17"
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Status line or log
+      description: The status line shows in Kiosk Satellite's Remote Admin. Remove passwords and keys from anything you paste.

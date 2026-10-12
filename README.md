@@ -1,0 +1,106 @@
+# ☎️ Kiosk Phone  
+
+A [Kiosk Satellite](https://kiosksatellite.com) plugin that turns a kiosk into a SIP phone on your PBX. It rings for calls, and it plays pages and announcements, even when nobody has a dashboard open.
+
+![A call rings on the kiosk, is answered, and ends](docs/images/demo.gif)
+
+*A call to the kiosk's extension on an Echo Show 5: ringing, answered, ended.*
+
+![A page playing on the kiosk, with Reply and Dismiss buttons](docs/images/screen-page.png)
+
+*A page playing as an announcement.*
+
+## Contents
+
+- [Features](#-features)
+- [What you need](#-what-you-need)
+- [Install](#-install)
+- [Settings](#-settings)
+- [Privacy and security](#-privacy-and-security)
+- [Troubleshooting](#-troubleshooting)
+- [Credits](#-credits)
+- [More](#-more)
+
+## 📞 Features
+
+- 📞 **A real SIP phone:** The kiosk registers as its own extension, so your PBX treats it like any other phone.
+- 🔔 **Calls ring the kiosk:** Answer or Decline on the screen, then talk both ways through the kiosk's speaker and microphone, using the native Kiosk Satellite Intercom.
+- 📢 **PBX paging and announcements:** Page the extension or a page group in your PBX and the kiosk plays it through Kiosk Satellite's own intercom as an announcement: same chime, same volume, same Do Not Disturb. Dial your PBX's paging or intercom code for the extension, or add it to a page group, and the kiosk answers on its own.
+- 🏠 **Status in Home Assistant:** Whether it is registered, the last page, how fast it answered, and the call state show up as Kiosk Satellite entities.
+
+Kiosk Phone doesn't bypass Kiosk Satellite's intercom settings. Audio goes through the intercom, so Do Not Disturb, Lockdown Mode, Accept announcements, the intercom switch, a call already in progress and Maximum call duration all apply as they do for any other intercom call. When the kiosk can't take a page, it stays quiet and the caller is told so.
+
+## 📱 What you need
+
+| | |
+|---|---|
+| **Kiosk** | Kiosk Satellite with plugin support (plugin API version 1) on Android 7.0 or newer. Tested on an Echo Show 5 running LineageOS. |
+| **Kiosk Satellite** | Intercom turned on, with an intercom key set. **Accept announcements** on. Remote Admin on. |
+| **PBX** | Any PBX or SIP provider that speaks standard SIP over UDP. Tested with FreePBX (Asterisk). |
+| **Network** | The kiosk can reach the PBX on its SIP port (usually 5060). |
+| **Audio** | G.722 (preferred), G.711 µ-law or A-law. |
+
+Not supported yet: Outbound calling from the kiosk (planned)
+
+## 🚀 Install
+
+1. In Kiosk Satellite, open **Settings > Plugin Manager** (or **Plugin Manager** in Remote Admin) and turn on **Enable Plugins**.
+2. Choose **Add plugin**, paste this repository's GitHub URL, and choose **Preview**.
+3. Read the manifest and this README, then choose **Trust and install**.
+4. Open the plugin's row, fill in the [settings](#-settings), and enable it.
+5. Create an extension for the kiosk on your PBX, then check the status line says `Registered`.
+
+## ⚙️ Settings
+
+Set these on each kiosk, in the plugin's row. Every kiosk needs its own extension, with its own secret. Numbers are typed as text.
+
+| Group | Setting | What to enter | Default |
+|---|---|---|---|
+| SIP account | **PBX address** | Host name or IP of the PBX | |
+| SIP account | **PBX port** | SIP UDP port | `5060` |
+| SIP account | **Extension** | This kiosk's extension | |
+| SIP account | **Auth user** | Only if the PBX login differs from the extension | empty |
+| SIP account | **Password** | The extension's SIP secret | |
+| SIP account | **Local SIP port** | UDP port the kiosk listens on | `5070` |
+| Kiosk intercom | **Intercom key** | This kiosk's Kiosk Satellite intercom key | |
+| Kiosk intercom | **KS admin port** | Kiosk Satellite's admin port | `2324` |
+| Kiosk intercom | **Microphone gain** | Boosts the mic for calls, 1 (off) to 30. Some kiosk mics are very quiet. | `8` |
+
+## 🔒 Privacy and security
+
+- **Settings are plain text.** Kiosk Satellite has no secret setting type, so the SIP password and the intercom key are stored and shown as plain text in Remote Admin. Use a dedicated extension and keep the admin port on a trusted network.
+- **Nothing leaves your network** except the SIP traffic to your own PBX. The plugin has no analytics and contacts no other service.
+- **SIP and audio aren't encrypted** (UDP and RTP). Keep them on your LAN or a VPN.
+- **The plugin runs inside Kiosk Satellite** with its permissions, like every plugin. Review the code before you trust it.
+
+## 🧰 Troubleshooting
+
+| What you see | What to check |
+|---|---|
+| Status says `Not registered` | PBX address, port, extension and password. Is the kiosk allowed to reach the PBX on that port? |
+| Status says `No intercom key configured` | Fill in **Intercom key** with the key from Kiosk Satellite. |
+| Registered, but pages are silent | Intercom on? **Accept announcements** on? Kiosk not in Do Not Disturb or Lockdown Mode? Is the key right? |
+| The kiosk chimes and shows the page but plays no sound | Try a plain Kiosk Satellite intercom broadcast. If that is silent too, the kiosk's audio is stuck, not the plugin. A reboot fixed it for us. |
+| Caller is turned away | Do Not Disturb is on, or Kiosk Satellite's intercom refused the call. Some PBXs (FreePBX included) report Do Not Disturb and busy the same way, so check the plugin's status line to tell them apart. See [docs/pbx.md](docs/pbx.md). |
+| The other side can barely hear you on a call | Raise **Microphone gain**. |
+
+The plugin's status line (in Remote Admin) says what it is doing.
+
+## 🙏 Credits
+
+- SIP code adapted from [meiser79/kiosk-satellite-sip-phone](https://github.com/meiser79/kiosk-satellite-sip-phone) (Apache-2.0).
+- G.722 codec ported from SpanDSP by Steve Underwood (public domain), via [Asterisk](https://github.com/asterisk/asterisk).
+- Plugin build tools and release workflow follow the [Kiosk Satellite plugin template](https://github.com/jxlarrea/kiosk-satellite-plugin-hello-world) (Apache-2.0).
+
+Details are in [NOTICE](NOTICE) and [licenses/](licenses/).
+
+## 📚 More
+
+- Ideas or problems? Open an issue.
+- For developers: [building and changing it](docs/DEVELOPING.md), the [Kiosk Satellite intercom protocol](docs/protocol.md) as we observed it, and [PBX behavior](docs/pbx.md).
+
+🤖 Built with a lot of help from Claude, who worked with me on most of the design, code, tests, and docs.
+
+*Not affiliated with or endorsed by the Kiosk Satellite project.*
+
+Code is Apache-2.0 (see [LICENSE](LICENSE) and [NOTICE](NOTICE)).

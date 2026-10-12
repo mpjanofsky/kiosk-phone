@@ -1,0 +1,37 @@
+name: Device or PBX report
+description: It works (or doesn't) on a device or PBX not listed in the README
+labels: [compatibility]
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Device and Kiosk Satellite version
+      placeholder: "Fire HD 10, Kiosk Satellite x.y"
+    validations:
+      required: true
+  - type: input
+    id: pbx
+    attributes:
+      label: PBX and version
+      placeholder: "FreeSWITCH 1.10"
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Pages
+      options: [Work, Partly work, Don't work]
+    validations:
+      required: true
+  - type: dropdown
+    id: calls
+    attributes:
+      label: Calls
+      options: [Work, Partly work, Don't work, Not tried]
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Codec used, audio quality, anything odd.

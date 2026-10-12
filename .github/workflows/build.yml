@@ -1,0 +1,57 @@
+# Builds the plugin when a GitHub release is published and attaches the manifest, the ZIP and its
+# checksum. Kiosk Satellite only installs releases whose assets were uploaded by this workflow.
+# The version comes from the release tag (v1.2.0 -> 1.2.0). Drafts and prereleases are ignored by
+# Kiosk Satellite, so publish a stable release.
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to rebuild, for example v1.0.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - name: Check the release exists for this tag
+        run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
+
+      - name: Check the manifest version matches the tag
+        run: grep -q "\"version\": \"${TAG#v}\"" kiosk-satellite-plugin.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android platform and build-tools
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" >/dev/null
+
+      - name: Test
+        run: gradle build
+
+      - name: Build
+        run: sh plugin/build.sh --android-platform 35 --version "${TAG#v}"
+
+      - name: Attach assets to the release
+        run: |
+          cd build/plugin-stage/dist
+          gh release upload "$TAG" kiosk-phone-*.zip kiosk-phone-*.zip.sha256 kiosk-satellite-plugin.json --clobber --repo "$GITHUB_REPOSITORY"

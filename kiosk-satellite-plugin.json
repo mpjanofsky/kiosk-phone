@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "id": "kiosk-phone",
+  "name": "Kiosk Phone",
+  "version": "0.5.0",
+  "apiVersion": 1,
+  "minAndroidSdk": 24,
+  "entryClass": "kioskvoip.plugin.VoipPlugin",
+  "description": "Turns this kiosk into a SIP phone on your PBX. Calls ring on the screen, and pages and announcements play through Kiosk Satellite's own intercom. Not affiliated with Kiosk Satellite.",
+  "author": "Mike Janofsky",
+  "license": "Apache-2.0",
+  "capabilities": [
+    "entities"
+  ],
+  "settings": [
+    {
+      "key": "pbxHost",
+      "type": "string",
+      "title": "PBX address",
+      "default": "",
+      "group": "SIP account",
+      "description": "Host name or IP of the PBX."
+    },
+    {
+      "key": "pbxPort",
+      "type": "string",
+      "title": "PBX port",
+      "default": "5060",
+      "group": "SIP account",
+      "description": "SIP UDP port. (number)"
+    },
+    {
+      "key": "extension",
+      "type": "string",
+      "title": "Extension",
+      "default": "",
+      "group": "SIP account",
+      "description": "SIP user, one extension per kiosk."
+    },
+    {
+      "key": "authUser",
+      "type": "string",
+      "title": "Auth user",
+      "default": "",
+      "group": "SIP account",
+      "description": "Leave empty to use the extension. Stored as plain text."
+    },
+    {
+      "key": "password",
+      "type": "string",
+      "title": "Password",
+      "default": "",
+      "group": "SIP account",
+      "description": "SIP secret. Stored and shown as plain text in Remote Admin."
+    },
+    {
+      "key": "localPort",
+      "type": "string",
+      "title": "Local SIP port",
+      "default": "5070",
+      "group": "SIP account",
+      "description": "UDP port this kiosk listens on. (number)"
+    },
+    {
+      "key": "intercomKey",
+      "type": "string",
+      "title": "Intercom key",
+      "default": "",
+      "group": "Kiosk intercom",
+      "description": "This kiosk's intercom key, as set in Kiosk Satellite. Stored and shown as plain text."
+    },
+    {
+      "key": "intercomPort",
+      "type": "string",
+      "title": "KS admin port",
+      "default": "2324",
+      "group": "Kiosk intercom",
+      "description": "Kiosk Satellite admin/identity port on this kiosk. (number)"
+    },
+    {
+      "key": "micGain",
+      "type": "string",
+      "title": "Microphone gain",
+      "default": "8",
+      "group": "Kiosk intercom",
+      "description": "Multiplies the kiosk microphone before it is sent to the caller on a call; the Echo's mic is quiet. 1 = off, up to 30. (number)"
+    }
+  ],
+  "groups": [
+    {
+      "title": "SIP account",
+      "readingsTitle": "Status",
+      "readings": [
+        "binary_sensor.registered",
+        "text_sensor.last_page",
+        "text_sensor.status"
+      ]
+    },
+    {
+      "title": "Kiosk intercom"
+    }
+  ]
+}

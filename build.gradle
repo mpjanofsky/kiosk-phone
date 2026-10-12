@@ -1,0 +1,10 @@
+subprojects {
+    apply plugin: 'java'
+    repositories { mavenCentral() }
+    // Java 11 bytecode: plain JVM on the Mac now, DEX for the KS plugin later.
+    tasks.withType(JavaCompile).configureEach {
+        options.release = 11
+        options.encoding = 'UTF-8'
+        options.compilerArgs += ['-Xlint:all,-options']
+    }
+}

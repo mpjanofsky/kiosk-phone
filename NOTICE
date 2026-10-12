@@ -1,0 +1,13 @@
+Kiosk Phone
+Copyright 2026 Mike Janofsky
+
+This product includes software developed elsewhere:
+
+- SIP registration, digest authentication and call handling in core/src/main/java/kioskvoip/sip/
+  are adapted from meiser79/kiosk-satellite-sip-phone, commit d4cec06
+  (https://github.com/meiser79/kiosk-satellite-sip-phone, Apache License 2.0).
+- G722.java is a Java port of the SpanDSP G.722 codec by Steve Underwood (public domain), taken
+  from Asterisk (https://github.com/asterisk/asterisk, codecs/g722/).
+- The build tools in tools/, the plugin interfaces in sdk/ and the release workflow in
+  .github/workflows/ come from or follow the Kiosk Satellite "Hello World" plugin template
+  (https://github.com/jxlarrea/kiosk-satellite-plugin-hello-world, Apache License 2.0).

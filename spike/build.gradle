@@ -1,0 +1,30 @@
+apply plugin: 'application'
+dependencies { implementation project(':core') }
+application { mainClass = 'kioskvoip.spike.PageToWav' }
+run { workingDir = rootProject.projectDir }
+
+// Second start script: bin/fake-phone
+tasks.register('fakePhoneScript', CreateStartScripts) {
+    mainClass = 'kioskvoip.sip.FakePhone'
+    applicationName = 'fake-phone'
+    outputDir = layout.buildDirectory.dir('fake-phone-scripts').get().asFile
+    classpath = startScripts.classpath
+}
+// bin/kiosk-broadcast (WAV → kiosk) and bin/page-to-kiosk (SIP page → kiosk)
+tasks.register('kioskBroadcastScript', CreateStartScripts) {
+    mainClass = 'kioskvoip.spike.KioskBroadcast'
+    applicationName = 'kiosk-broadcast'
+    outputDir = layout.buildDirectory.dir('kiosk-broadcast-scripts').get().asFile
+    classpath = startScripts.classpath
+}
+tasks.register('pageToKioskScript', CreateStartScripts) {
+    mainClass = 'kioskvoip.spike.PageToKiosk'
+    applicationName = 'page-to-kiosk'
+    outputDir = layout.buildDirectory.dir('page-to-kiosk-scripts').get().asFile
+    classpath = startScripts.classpath
+}
+distributions.main.contents {
+    from(fakePhoneScript) { into 'bin' }
+    from(kioskBroadcastScript) { into 'bin' }
+    from(pageToKioskScript) { into 'bin' }
+}
