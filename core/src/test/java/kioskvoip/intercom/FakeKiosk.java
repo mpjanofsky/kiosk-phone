@@ -8,7 +8,6 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
@@ -207,9 +206,9 @@ final class FakeKiosk implements AutoCloseable {
         int dot = token.indexOf('.');
         if (dot < 0) return false;
         String payload = token.substring(0, dot);
-        String sig = Base64.getUrlEncoder().encodeToString(IntercomAuth.hmac(key, payload));
+        String sig = B64.encodeUrl(IntercomAuth.hmac(key, payload));
         if (!sig.equals(token.substring(dot + 1))) { events.add("reject bad signature"); return false; }
-        Map<String, Object> claims = Json.object(new String(Base64.getUrlDecoder().decode(payload), StandardCharsets.UTF_8));
+        Map<String, Object> claims = Json.object(new String(B64.decodeUrl(payload), StandardCharsets.UTF_8));
         if (!call.equals(claims.get("intercom"))) { events.add("reject wrong call"); return false; }
         if (!"0123456789abcdef".equals(claims.get("from"))) { events.add("reject wrong sender"); return false; }
         long exp = (Long) claims.get("exp");

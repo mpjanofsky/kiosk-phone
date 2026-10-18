@@ -5,7 +5,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.crypto.Mac;
@@ -39,8 +38,8 @@ public final class IntercomAuth {
         claims.put("from", from);
         claims.put("n", nonce);
         claims.put("exp", expiresMs);
-        String payload = Base64.getUrlEncoder().encodeToString(Json.write(claims).getBytes(StandardCharsets.UTF_8));
-        return payload + "." + Base64.getUrlEncoder().encodeToString(hmac(key, payload));
+        String payload = B64.encodeUrl(Json.write(claims).getBytes(StandardCharsets.UTF_8));
+        return payload + "." + B64.encodeUrl(hmac(key, payload));
     }
 
     static byte[] hmac(String key, String payload) {

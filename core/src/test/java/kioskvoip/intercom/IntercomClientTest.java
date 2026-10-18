@@ -29,7 +29,7 @@ class IntercomClientTest {
     @Test
     void tokenMatchesPythonReference() {
         // From scripts/ks_broadcast_test.py's issue_token with the same claims (verified against a real kiosk).
-        assertEquals("eyJpbnRlcmNvbSI6ImMxIiwiZnJvbSI6IjAxMjM0NTY3ODlhYmNkZWYiLCJuIjoiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiIiwiZXhwIjoxNzAwMDAwMDAwMDAwfQ==."
+        assertEquals("eyJpbnRlcmNvbSI6ImMxIiwiZnJvbSI6IjAxMjM0NTY3ODlhYmNkZWYiLCJuIjoiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiIiwiZXhwIjoxNzAwMDAwMDAwMDAwfQ==." // leak-ok: fixture signed with the dummy key "test-key"
             + "xtw8rvE88TjUjnApyeEuKofe6kn5SmPOgzFsyfGpnec=",
             IntercomAuth.token(KEY, "c1", "0123456789abcdef", 1700000000000L, "ab".repeat(12)));
         assertEquals("62af8704", IntercomAuth.digest(KEY));

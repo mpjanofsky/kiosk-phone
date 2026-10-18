@@ -113,7 +113,7 @@ public final class FakePhone {
 
     private String authHeader(SipMessage challenge, String method, String uri) {
         boolean proxy = challenge.status() == 407;
-        Map<String, String> params = SipDigest.parseParams(challenge.header(proxy ? "proxy-authenticate" : "www-authenticate"));
+        Map<String, String> params = SipDigest.parseParams(challenge.header(proxy ? "proxy-authenticate" : "www-authenticate")); // leak-ok: header names
         String qop = params.get("qop") != null ? "auth" : null;
         String cnonce = hex(8), nc = "00000001";
         StringBuilder value = new StringBuilder(proxy ? "Proxy-Authorization" : "Authorization")

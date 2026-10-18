@@ -11,7 +11,6 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
-import java.util.Base64;
 import java.util.Map;
 
 /**
@@ -52,7 +51,7 @@ final class WebSocket {
             socket.connect(new InetSocketAddress(host, port), timeoutMs);
             socket.setSoTimeout(timeoutMs);
             socket.setTcpNoDelay(true);
-            String key = Base64.getEncoder().encodeToString(IntercomAuth.randomBytes(16));
+            String key = B64.encode(IntercomAuth.randomBytes(16));
             String request = "GET " + path + " HTTP/1.1\r\nHost: " + Http.hostHeader(host, port) + "\r\n"
                 + "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: " + key + "\r\n"
                 + "Sec-WebSocket-Version: 13\r\n\r\n";
@@ -82,7 +81,7 @@ final class WebSocket {
     static String accept(String key) {
         try {
             byte[] hash = MessageDigest.getInstance("SHA-1").digest((key + GUID).getBytes(StandardCharsets.US_ASCII));
-            return Base64.getEncoder().encodeToString(hash);
+            return B64.encode(hash);
         } catch (GeneralSecurityException impossible) {
             throw new IllegalStateException(impossible);
         }

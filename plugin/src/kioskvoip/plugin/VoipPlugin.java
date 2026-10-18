@@ -16,7 +16,7 @@ import me.jxl.kiosk.plugins.PluginHost;
  * All network work is on core's own threads; callbacks here only swap the session and return.
  */
 public final class VoipPlugin implements KioskPlugin {
-    private static final String VERSION = "0.5.0";
+    private static final String VERSION = "0.6.0";
 
     private PluginHost host;
     private SipClient sip;
@@ -43,13 +43,8 @@ public final class VoipPlugin implements KioskPlugin {
     @Override public void onEvent(String event, Map<String, Object> payload) { }
 
     @Override public synchronized void stop() {
+        // KS has already revoked the host and removes this plugin's entities itself (entities.md), so no host calls here.
         close();
-        if (host != null) {
-            host.removeBinarySensor("registered");
-            host.removeTextSensor("last_page");
-            host.removeTextSensor("status");
-            host.removeTextSensor("call_state");
-        }
         host = null;
     }
 

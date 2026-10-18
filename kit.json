@@ -1,0 +1,1 @@
+{"test": "gradle -q build", "build": "sh plugin/build.sh", "dist": "build/plugin-stage/dist", "sources": ["core/src/main/java", "plugin/src"]}

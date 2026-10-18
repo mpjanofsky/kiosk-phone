@@ -11,7 +11,6 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -100,14 +99,14 @@ public final class CallbackServer implements Closeable {
         byte[] expected = IntercomAuth.hmac(key, payload);
         byte[] given;
         try {
-            given = Base64.getUrlDecoder().decode(token.substring(dot + 1));
+            given = B64.decodeUrl(token.substring(dot + 1));
         } catch (IllegalArgumentException bad) {
             return false;
         }
         if (!MessageDigest.isEqual(expected, given)) return false;
         Map<String, Object> claims;
         try {
-            claims = Json.object(new String(Base64.getUrlDecoder().decode(payload), StandardCharsets.UTF_8));
+            claims = Json.object(new String(B64.decodeUrl(payload), StandardCharsets.UTF_8));
         } catch (IllegalArgumentException bad) {
             return false;
         }

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "kiosk-phone",
   "name": "Kiosk Phone",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "apiVersion": 1,
   "minAndroidSdk": 24,
   "entryClass": "kioskvoip.plugin.VoipPlugin",
@@ -43,15 +43,15 @@
       "title": "Auth user",
       "default": "",
       "group": "SIP account",
-      "description": "Leave empty to use the extension. Stored as plain text."
+      "description": "Leave empty to use the extension."
     },
     {
       "key": "password",
-      "type": "string",
+      "type": "secret",
       "title": "Password",
       "default": "",
       "group": "SIP account",
-      "description": "SIP secret. Stored and shown as plain text in Remote Admin."
+      "description": "SIP secret. Needs Kiosk Satellite 2026.10.22 or newer."
     },
     {
       "key": "localPort",
@@ -63,11 +63,11 @@
     },
     {
       "key": "intercomKey",
-      "type": "string",
+      "type": "secret",
       "title": "Intercom key",
       "default": "",
       "group": "Kiosk intercom",
-      "description": "This kiosk's intercom key, as set in Kiosk Satellite. Stored and shown as plain text."
+      "description": "This kiosk's intercom key, as set in Kiosk Satellite."
     },
     {
       "key": "intercomPort",

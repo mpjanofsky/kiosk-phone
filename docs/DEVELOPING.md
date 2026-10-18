@@ -75,6 +75,6 @@ workflow. To release:
 ## Limits of the platform
 
 Lifecycle callbacks must return within 3 seconds, so all network work runs on background threads. The
-package must stay under 4 MB. Plugin settings have no secret type, so credentials are plain text. The
+package must stay under 4 MB. Credentials use the `secret` setting type (Kiosk Satellite 2026.10.22+), which reaches the plugin as an ordinary string. The
 SDK offers no microphone or intercom API, which is why the plugin talks to the kiosk's own intercom
 over `127.0.0.1`.

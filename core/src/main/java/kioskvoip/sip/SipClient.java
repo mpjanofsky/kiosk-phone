@@ -396,7 +396,7 @@ public final class SipClient {
                 failRegistration("Registration rejected; check the username or password");
                 return;
             }
-            String challenge = message.header(code == 401 ? "www-authenticate" : "proxy-authenticate");
+            String challenge = message.header(code == 401 ? "www-authenticate" : "proxy-authenticate"); // leak-ok: header names
             if (challenge == null) {
                 failRegistration("Server requires authentication but sent no challenge");
                 return;
@@ -435,7 +435,7 @@ public final class SipClient {
                 .append("\", algorithm=MD5");
             if (qop != null) value.append(", qop=").append(qop).append(", nc=").append(nc).append(", cnonce=\"").append(cnonce).append('"');
             if (params.get("opaque") != null) value.append(", opaque=\"").append(params.get("opaque")).append('"');
-            sendRegister(code == 401 ? "Authorization" : "Proxy-Authorization", value.toString());
+            sendRegister(code == 401 ? "Authorization" : "Proxy-Authorization", value.toString()); // leak-ok: header names
             return;
         }
         failRegistration("Registration failed: " + code + " " + message.reason());
