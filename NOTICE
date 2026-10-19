@@ -11,3 +11,6 @@ This product includes software developed elsewhere:
 - The build tools in tools/, the plugin interfaces in sdk/ and the release workflow in
   .github/workflows/ come from or follow the Kiosk Satellite "Hello World" plugin template
   (https://github.com/jxlarrea/kiosk-satellite-plugin-hello-world, Apache License 2.0).
+
+The phone glyph in assets/icon.png (docs/icon.svg) is the "call" icon from Google's Material Icons
+(https://github.com/google/material-design-icons, Apache License 2.0).

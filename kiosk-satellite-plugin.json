@@ -2,13 +2,14 @@
   "schemaVersion": 1,
   "id": "kiosk-phone",
   "name": "Kiosk Phone",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "apiVersion": 1,
   "minAndroidSdk": 24,
   "entryClass": "kioskvoip.plugin.VoipPlugin",
   "description": "Turns this kiosk into a SIP phone on your PBX. Calls ring on the screen, and pages and announcements play through Kiosk Satellite's own intercom. Not affiliated with Kiosk Satellite.",
   "author": "Mike Janofsky",
   "license": "Apache-2.0",
+  "icon": "icon.png",
   "capabilities": [
     "entities"
   ],

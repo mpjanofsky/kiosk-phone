@@ -12,5 +12,7 @@ rm -rf "$stage"; mkdir -p "$stage/src"
 cp -R "$root/core/src/main/java/." "$stage/src/"
 cp -R "$root/plugin/src/." "$stage/src/"
 cp "$root/kiosk-satellite-plugin.json" "$root/LICENSE" "$stage/"
+# assets/ holds the directory icon (manifest "icon"); tools/build.py packages everything under it.
+[ -d "$root/assets" ] && cp -R "$root/assets" "$stage/"
 python3 "$root/tools/build.py" "$stage" "$@"
 echo "ZIP: $stage/dist"

@@ -16,7 +16,7 @@ import me.jxl.kiosk.plugins.PluginHost;
  * All network work is on core's own threads; callbacks here only swap the session and return.
  */
 public final class VoipPlugin implements KioskPlugin {
-    private static final String VERSION = "0.6.0";
+    private static final String VERSION = "0.6.1";
 
     private PluginHost host;
     private SipClient sip;

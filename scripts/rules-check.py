@@ -53,6 +53,8 @@ uses = {
     "shizuku": r"\.(executeShizuku|shizukuState)\(",
     "native": r"\.nativeLibraryPath\(",
     "ha": r"\.(haCall|haSubscribe|haUnsubscribe)\(",
+    "camera": r"\.(openCamera|closeCamera)\(",
+    "barcode": r"\.(scanBarcode|cancelBarcodeScan)\(",
 }
 code = "\n".join(sources.values())
 declared = set(manifest.get("capabilities", []))
@@ -81,6 +83,18 @@ for path, text in sources.items():
     body = text[m.end():i]
     if re.search(r"\bhost\s*\.\s*\w+\(", body) and "ks-rules: allow" not in body:
         warns.append("%s: stop() calls the host; KS has already revoked access (RULES.md Lifecycle)" % path.relative_to(ROOT))
+
+# Icon: Community Plugins refuses a listed icon that is missing or not a 256 by 256 PNG of at most 256 KB.
+icon = manifest.get("icon")
+if icon is not None:
+    path = ROOT / "assets" / str(icon)
+    if not isinstance(icon, str) or not icon.endswith(".png") or ".." in icon or not path.is_file():
+        fails.append("manifest icon must name a PNG under assets/ (got %r)" % icon)
+    else:
+        data = path.read_bytes()
+        size = (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")) if data[:8] == b"\x89PNG\r\n\x1a\n" else None
+        if size != (256, 256) or len(data) > 256 * 1024:
+            fails.append("assets/%s must be a 256 by 256 PNG of at most 256 KB" % icon)
 
 # README: size and the not-affiliated line.
 readme = ROOT / "README.md"
