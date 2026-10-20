@@ -61,8 +61,16 @@ public final class SipClient {
     public static final class Config {
         public final String server, user, authUser, password;
         public final int port, localPort, expires;
+        /** The {@code User-Agent} header value, so PBX logs and traces name the plugin and its version. */
+        public final String userAgent;
 
         public Config(String server, int port, String user, String authUser, String password, int localPort, int expires) {
+            this(server, port, user, authUser, password, localPort, expires, "kiosk-phone");
+        }
+
+        public Config(String server, int port, String user, String authUser, String password, int localPort, int expires,
+                      String userAgent) {
+            this.userAgent = userAgent;
             this.server = server;
             this.port = port;
             this.user = user;
@@ -101,7 +109,6 @@ public final class SipClient {
     /** Under KS's 50 s answer window, so we give up first and the caller hears 480. */
     static final long RING_TIMEOUT_MS = 45_000;
     private static final String ALLOW = "INVITE, ACK, CANCEL, BYE, OPTIONS";
-    private static final String USER_AGENT = "kiosk-voip/0.1";
 
     /** The one active call. */
     private static final class Call {
@@ -375,7 +382,7 @@ public final class SipClient {
             .append(config.localPort).append(">\r\n")
             .append("Expires: ").append(config.expires).append("\r\n")
             .append("Allow: ").append(ALLOW).append("\r\n")
-            .append("User-Agent: ").append(USER_AGENT).append("\r\n");
+            .append("User-Agent: ").append(config.userAgent).append("\r\n");
         if (authValue != null) sb.append(authName).append(": ").append(authValue).append("\r\n");
         sb.append("Content-Length: 0\r\n\r\n");
         send(sb.toString().getBytes(StandardCharsets.UTF_8), new InetSocketAddress(serverAddress, config.port));
@@ -676,7 +683,7 @@ public final class SipClient {
             + "To: " + c.invite.header("from") + "\r\n"
             + "Call-ID: " + c.invite.header("call-id") + "\r\n"
             + "CSeq: " + (c.invite.cseqNumber() + 1) + " BYE\r\n"
-            + "User-Agent: " + USER_AGENT + "\r\n"
+            + "User-Agent: " + config.userAgent + "\r\n"
             + "Content-Length: 0\r\n\r\n").getBytes(StandardCharsets.UTF_8);
     }
 
@@ -709,7 +716,7 @@ public final class SipClient {
           .append("CSeq: ").append(request.header("cseq")).append("\r\n")
           .append("Contact: <sip:").append(config.user).append('@').append(localIp).append(':').append(config.localPort).append(">\r\n")
           .append("Allow: ").append(ALLOW).append("\r\n")
-          .append("User-Agent: ").append(USER_AGENT).append("\r\n");
+          .append("User-Agent: ").append(config.userAgent).append("\r\n");
         if (!body.isEmpty()) sb.append("Content-Type: application/sdp\r\n");
         sb.append("Content-Length: ").append(body.getBytes(StandardCharsets.UTF_8).length).append("\r\n\r\n").append(body);
         return sb.toString().getBytes(StandardCharsets.UTF_8);

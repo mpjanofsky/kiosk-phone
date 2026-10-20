@@ -33,6 +33,12 @@ A page can be answered (SIP 200), KS can chime and animate, and the Echo can sti
 
 ## Kiosk settings that refuse or end a page (verified 2026-10-12)
 Pages from the fake phone to `*80<ext>` on a real Echo, plugin build 0.2.0, Kiosk Satellite 2026.10.20. Each setting was changed over Remote Admin for the test and restored.
-- **Accept announcements** off, **intercom** off, **Lockdown Mode** on, or a broadcast already playing on the kiosk: the page is refused and the caller sees **486 Busy Here** (CDR: NO ANSWER, 0 s). The PBX can't tell these apart; the plugin's status line and log can.
+- **Accept announcements** off, **intercom** off, **Lockdown Mode** on, or a broadcast already playing on the kiosk: the page is refused and the caller sees **486 Busy Here** (CDR: NO ANSWER, 0 s). The PBX can't tell these apart; the plugin's **Last call** entity can (before 0.7.0: **Last page**).
 - **Maximum call duration** set to 1 minute: a page held open for 85 s was ended at 59 s and the caller got the hangup (CDR billsec 59, against 84 s with no limit).
 - With each setting back to normal, the next page played.
+
+## Plain Asterisk (no FreePBX) — not yet verified
+Reported in issue #1 (Asterisk 16, direct `Dial` to the plugin extension, caller saw `unreachable (SIP 480)`). Not reproduced here; what the code does:
+- An INVITE without FreePBX's `Alert-Info: ...Ring Answer` / `Call-Info: ...answer-after` hints is treated as an ordinary **call**, not a page, even if it comes from a paging app. It rings the kiosk's call card and waits for Answer/Decline; nobody answering within 45 s gives 480.
+- A **480 sent at once** (no ringing) means the kiosk's intercom refused the call: DND or Lockdown, intercom off, intercom key mismatch, or a callback problem. The reason is in the **Last call** entity (Home Assistant), not the status line (which only shows registration). Before 0.7.0 that entity was called **Last page** and read like `<caller>: dnd (SIP 480)`.
+- Asterisk 16 maps a 480 to its own "unreachable" text; the cause is on the kiosk side, so look at **Last call** first.

@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "id": "kiosk-phone",
   "name": "Kiosk Phone",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "apiVersion": 1,
   "minAndroidSdk": 24,
   "entryClass": "kioskvoip.plugin.VoipPlugin",
-  "description": "Turns this kiosk into a SIP phone on your PBX. Calls ring on the screen, and pages and announcements play through Kiosk Satellite's own intercom. Not affiliated with Kiosk Satellite.",
+  "description": "Turns this kiosk into a SIP phone on your PBX. Calls ring on the screen, and pages and announcements play through Kiosk Satellite's own intercom.",
   "author": "Mike Janofsky",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -84,7 +84,7 @@
       "title": "Microphone gain",
       "default": "8",
       "group": "Kiosk intercom",
-      "description": "Multiplies the kiosk microphone before it is sent to the caller on a call; the Echo's mic is quiet. 1 = off, up to 30. (number)"
+      "description": "Boosts your voice on calls if the caller finds it quiet. 1 = off, up to 30. (number)"
     }
   ],
   "groups": [
@@ -93,7 +93,8 @@
       "readingsTitle": "Status",
       "readings": [
         "binary_sensor.registered",
-        "text_sensor.last_page",
+        "text_sensor.last_call",
+        "text_sensor.call_state",
         "text_sensor.status"
       ]
     },

@@ -15,7 +15,7 @@ A [Kiosk Satellite](https://kiosksatellite.com) plugin that turns a kiosk into a
 - 📞 **A real SIP phone:** The kiosk registers as its own extension, so your PBX treats it like any other phone.
 - 🔔 **Calls ring the kiosk:** Answer or Decline on the screen, then talk both ways through the kiosk's speaker and microphone, using the native Kiosk Satellite Intercom.
 - 📢 **PBX paging and announcements:** Page the extension or a page group in your PBX and the kiosk plays it through Kiosk Satellite's own intercom as an announcement: same chime, same volume, same Do Not Disturb. Dial your PBX's paging or intercom code for the extension, or add it to a page group, and the kiosk answers on its own.
-- 🏠 **Status in Home Assistant:** Whether it is registered, the last page, how fast it answered, and the call state show up as Kiosk Satellite entities.
+- 🏠 **Status in Home Assistant:** Whether it is registered, the last call (missed, blocked, declined, answered, with the reason and time), how fast a page answered, and the call state show up as Kiosk Satellite entities. Home Assistant's history of **Last call** is your call log.
 
 Kiosk Phone doesn't bypass Kiosk Satellite's intercom settings. Audio goes through the intercom, so Do Not Disturb, Lockdown Mode, Accept announcements, the intercom switch, a call already in progress and Maximum call duration all apply as they do for any other intercom call. When the kiosk can't take a page, it stays quiet and the caller is told so.
 
@@ -76,7 +76,7 @@ The status line shows in the plugin's row in Plugin Manager, on the kiosk or in 
 | Status says `No intercom key configured` | Fill in **Intercom key** with the key from Kiosk Satellite. |
 | Registered, but pages are silent | Intercom on? **Accept announcements** on? Kiosk not in Do Not Disturb or Lockdown Mode? Is the key right? |
 | The kiosk chimes and shows the page but plays no sound | Try a plain Kiosk Satellite intercom broadcast. If that is silent too, the kiosk's audio is stuck, not the plugin. A reboot fixed it for us. |
-| Caller is turned away | Do Not Disturb is on, or Kiosk Satellite's intercom refused the call. Some PBXs (FreePBX included) report Do Not Disturb and busy the same way, so check the plugin's status line to tell them apart. See [docs/pbx.md](docs/pbx.md). |
+| Caller is turned away (SIP 480 or 486) | Kiosk Satellite's intercom refused the call. The **Last call** entity says why, for example `blocked: Do Not Disturb`, `blocked: intercom off`, `blocked: intercom key mismatch` or `busy`. The status line only shows registration. Some PBXs (FreePBX included) show the caller the same busy or unavailable message for every reason, so look at **Last call**. See [docs/pbx.md](docs/pbx.md). |
 | The other side can barely hear you on a call | Raise **Microphone gain**. |
 
 

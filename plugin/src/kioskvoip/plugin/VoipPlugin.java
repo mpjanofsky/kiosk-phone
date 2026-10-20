@@ -4,6 +4,7 @@ package kioskvoip.plugin;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Map;
+import kioskvoip.bridge.LastCall;
 import kioskvoip.bridge.PageBridge;
 import kioskvoip.intercom.CallbackServer;
 import kioskvoip.intercom.IntercomClient;
@@ -16,8 +17,9 @@ import me.jxl.kiosk.plugins.PluginHost;
  * All network work is on core's own threads; callbacks here only swap the session and return.
  */
 public final class VoipPlugin implements KioskPlugin {
-    private static final String VERSION = "0.6.1";
+    private static final String VERSION = "0.7.0";
 
+    private final LastCall lastCall = new LastCall();
     private PluginHost host;
     private SipClient sip;
     private CallbackServer callbacks;
@@ -26,7 +28,8 @@ public final class VoipPlugin implements KioskPlugin {
     @Override public synchronized void start(PluginHost host, Map<String, Object> settings) {
         this.host = host;
         host.publishBinarySensor("registered", "Registered", "connectivity", false);
-        host.publishTextSensor("last_page", "Last page", "none yet");
+        try { host.removeTextSensor("last_page"); } catch (RuntimeException old) { } // renamed in 0.7.0
+        host.publishTextSensor("last_call", "Last call", "none yet");
         host.publishTextSensor("status", "Status", "starting");
         host.publishTextSensor("call_state", "Call state", "idle");
         open(settings);
@@ -53,7 +56,7 @@ public final class VoipPlugin implements KioskPlugin {
         PluginHost h = host;
         String extension = text(s, "extension");
         SipClient.Config config = new SipClient.Config(text(s, "pbxHost"), number(s, "pbxPort"), extension,
-            text(s, "authUser"), text(s, "password"), number(s, "localPort"), 300);
+            text(s, "authUser"), text(s, "password"), number(s, "localPort"), 300, "kiosk-phone/" + VERSION);
         String problem = config.problem();
         if (problem == null && text(s, "intercomKey").isEmpty()) problem = "No intercom key configured";
         if (problem != null) {
@@ -85,7 +88,8 @@ public final class VoipPlugin implements KioskPlugin {
             @Override public void onPage(String caller, String status, int sipCode, String detail) {
                 PluginHost current = host;
                 if (current == null) return;
-                current.publishTextSensor("last_page", "Last page", caller + ": " + status + " (SIP " + sipCode + ")");
+                String entry = lastCall.onPage(caller, status, sipCode);
+                if (entry != null) current.publishTextSensor("last_call", "Last call", entry);
                 current.log("page from " + caller + ": kiosk " + status + " → SIP " + sipCode + " (" + detail + ")");
             }
             @Override public void onFirstAudio(String caller, long kioskAnswerMs, long firstAudioMs) {
@@ -98,6 +102,8 @@ public final class VoipPlugin implements KioskPlugin {
                 if (current == null) return;
                 boolean idle = "declined".equals(state) || "cancelled".equals(state) || "ended".equals(state);
                 current.publishTextSensor("call_state", "Call state", idle ? "idle" : state + ": " + caller);
+                String entry = lastCall.onCall(caller, state);
+                if (entry != null) current.publishTextSensor("last_call", "Last call", entry);
                 current.log("call from " + caller + ": " + state + " (" + detail + ")");
             }
             @Override public void onPageEnded(String caller, String reason) {
