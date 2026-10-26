@@ -6,7 +6,7 @@ import java.util.Locale;
 import java.util.function.LongSupplier;
 
 /**
- * Turns bridge events into the one-line "last call" entry (a phone's call log row): {@code incoming · who · result · time}.
+ * Turns bridge events into the one-line "last call" entry (a phone's call log row): {@code incoming · who · result · codec · time}.
  * Pure text and one flag, so it is unit-tested without a kiosk. Home Assistant's own history is the call log; this is
  * only the latest row, with a time on every entry so two identical results still change the state.
  */
@@ -15,13 +15,19 @@ public final class LastCall {
 
     private final LongSupplier clock;
     private boolean answered;
+    private String codec = "";
 
     public LastCall() { this(System::currentTimeMillis); }
 
     LastCall(LongSupplier clock) { this.clock = clock; }
 
-    /** An entry for a page or for a refused call, or null when there is nothing to record (a call that started ringing). */
-    public synchronized String onPage(String caller, String status, int sipCode) {
+    /**
+     * An entry for a page or for a refused call, or null when there is nothing to record (a call that started ringing).
+     * {@code codec} is the negotiated SDP codec name (PCMU, PCMA, G722); it is shown in the entry, and the later
+     * {@link #onCall} entries of the same call reuse it.
+     */
+    public synchronized String onPage(String caller, String status, int sipCode, String codec) {
+        this.codec = codecLabel(codec);
         if (sipCode == 180) {
             answered = false; // a call is now ringing; onCall reports how it ends
             return null;
@@ -47,6 +53,17 @@ public final class LastCall {
         }
     }
 
+    /** Plain label for the codec; G.711 is the narrowband one (4 kHz), which is why it matters when audio sounds muffled. */
+    static String codecLabel(String name) {
+        if (name == null) return "";
+        switch (name) {
+            case "G722": return "G.722";
+            case "PCMU": return "G.711 µ-law";
+            case "PCMA": return "G.711 A-law";
+            default: return name.isEmpty() ? "" : name;
+        }
+    }
+
     /** Fixed wording for the intercom statuses; the raw detail stays in the log. */
     static String refusal(String status) {
         if (status == null) return "failed: call setup error";
@@ -66,6 +83,7 @@ public final class LastCall {
         String who = caller == null || caller.isEmpty() ? "unknown" : caller;
         if (who.length() > WHO_MAX) who = who.substring(0, WHO_MAX - 1) + "…";
         String time = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date(clock.getAsLong()));
-        return "incoming · " + who + " · " + result + " · " + time;
+        String used = codec.isEmpty() ? "" : codec + " · ";
+        return "incoming · " + who + " · " + result + " · " + used + time;
     }
 }

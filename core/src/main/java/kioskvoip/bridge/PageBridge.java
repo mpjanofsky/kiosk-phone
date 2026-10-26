@@ -23,7 +23,7 @@ public final class PageBridge implements SipClient.Listener {
     public interface Events {
         void onRegistration(boolean registered, String detail);
         /** {@code status}: the intercom status; {@code sipCode}: what the PBX was told. */
-        void onPage(String caller, String status, int sipCode, String detail);
+        void onPage(String caller, String status, int sipCode, String codec, String detail);
         void onPageEnded(String caller, String reason);
         /** A call's progress: {@code ringing}, {@code answered}, {@code declined}, {@code cancelled} or {@code ended}. */
         default void onCall(String caller, String state, String detail) { }
@@ -111,7 +111,7 @@ public final class PageBridge implements SipClient.Listener {
         IntercomClient.Outcome outcome = intercom.call(caller, listener);
         if (!outcome.started()) {
             int code = IntercomClient.BUSY.equals(outcome.status) ? 486 : 480;
-            events.onPage(caller, outcome.status, code, outcome.detail + ", call, codec " + codec);
+            events.onPage(caller, outcome.status, code, codec, outcome.detail + ", call, codec " + codec);
             return code == 486 ? SipClient.Answer.busy() : SipClient.Answer.unavailable();
         }
         placed.set(outcome.call);
@@ -119,7 +119,7 @@ public final class PageBridge implements SipClient.Listener {
             currentCall = outcome.call;
             currentCaller = caller;
         }
-        events.onPage(caller, outcome.status, 180, outcome.detail + ", call, codec " + codec);
+        events.onPage(caller, outcome.status, 180, codec, outcome.detail + ", call, codec " + codec);
         events.onCall(caller, "ringing", "ringing on the kiosk");
         return SipClient.Answer.ring(reason -> {
             outcome.call.cancel();
@@ -147,7 +147,7 @@ public final class PageBridge implements SipClient.Listener {
         IntercomClient.Outcome outcome = intercom.broadcast(caller, this::kioskEnded);
         long kioskAnswerMs = elapsedMs(inviteAt);
         int code = sipCode(outcome);
-        events.onPage(caller, outcome.status, code, outcome.detail + ", codec " + codec);
+        events.onPage(caller, outcome.status, code, codec, outcome.detail + ", codec " + codec);
         if (code == 486) return SipClient.Answer.busy();
         if (code != 200) return SipClient.Answer.unavailable();
         Broadcast broadcast = outcome.broadcast;

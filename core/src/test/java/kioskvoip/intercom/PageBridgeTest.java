@@ -24,7 +24,7 @@ class PageBridgeTest {
             IntercomClientTest.SELF, m -> { });
         bridge = new PageBridge(intercom, new PageBridge.Events() {
             public void onRegistration(boolean registered, String detail) { }
-            public void onPage(String caller, String status, int sipCode, String detail) { pages.add(status + " " + sipCode); }
+            public void onPage(String caller, String status, int sipCode, String codec, String detail) { pages.add(status + " " + sipCode); }
             public void onPageEnded(String caller, String reason) { pages.add("ended " + caller); }
             public void log(String message) { }
         });

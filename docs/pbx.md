@@ -10,6 +10,7 @@ What FreePBX 17 (Asterisk, chan_pjsip) actually does with our SIP UA. Trust this
 - Audio starts with a ~0.5 s page beep from the PBX, then the caller's voice. Verified from an iPhone softphone, a desk phone and the fake phone (2026-10-11).
 - Codec: the PBX offers ulaw first but accepts our G.722 choice; transcodes when the caller uses something else.
 - The caller hanging up → BYE from the PBX.
+- The negotiated codec is shown in the **Last call** entity (`G.722`, `G.711 µ-law` or `G.711 A-law`; 0.7.1 and later) and in the host log. We offer G.722 first, then µ-law, then A-law. G.711 is narrowband (8 kHz sampling, nothing above 4 kHz) and is upsampled to the intercom's 16 kHz by linear interpolation, so it cannot sound brighter than the call itself.
 - When we reject a page with **480**, the caller sees **486 Busy Here** (FreePBX intercom `*80`, verified 2026-10-11 with the kiosk in DND). So the PBX won't tell callers DND from busy; the bridge log does.
 
 ## Timers and keepalive

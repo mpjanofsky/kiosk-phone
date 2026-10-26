@@ -85,10 +85,10 @@ public final class VoipPlugin implements KioskPlugin {
                 current.publishTextSensor("status", "Status", (registered ? "registered: " : "not registered: ") + detail);
                 current.status(registered ? "Registered" : "Not registered: " + detail, !registered);
             }
-            @Override public void onPage(String caller, String status, int sipCode, String detail) {
+            @Override public void onPage(String caller, String status, int sipCode, String codec, String detail) {
                 PluginHost current = host;
                 if (current == null) return;
-                String entry = lastCall.onPage(caller, status, sipCode);
+                String entry = lastCall.onPage(caller, status, sipCode, codec);
                 if (entry != null) current.publishTextSensor("last_call", "Last call", entry);
                 current.log("page from " + caller + ": kiosk " + status + " → SIP " + sipCode + " (" + detail + ")");
             }

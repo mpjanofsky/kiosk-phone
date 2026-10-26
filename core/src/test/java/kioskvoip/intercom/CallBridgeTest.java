@@ -37,7 +37,7 @@ class CallBridgeTest {
         intercom.setCallbackServer(callbacks);
         PageBridge bridge = new PageBridge(intercom, new PageBridge.Events() {
             public void onRegistration(boolean registered, String detail) { }
-            public void onPage(String caller, String status, int sipCode, String detail) { }
+            public void onPage(String caller, String status, int sipCode, String codec, String detail) { }
             public void onPageEnded(String caller, String reason) { bridgeEvents.add("page ended"); }
             public void onCall(String caller, String state, String detail) { bridgeEvents.add(state); }
             public void log(String message) { }

@@ -19,7 +19,7 @@ public final class PageToKiosk {
             @Override public void onRegistration(boolean registered, String detail) {
                 KioskSetup.event((registered ? "registered: " : "not registered: ") + detail);
             }
-            @Override public void onPage(String caller, String status, int sipCode, String detail) {
+            @Override public void onPage(String caller, String status, int sipCode, String codec, String detail) {
                 KioskSetup.event("page from " + caller + ": kiosk " + status + " → SIP " + sipCode + " (" + detail + ")");
             }
             @Override public void onPageEnded(String caller, String reason) { KioskSetup.event("page from " + caller + " ended: " + reason); }
