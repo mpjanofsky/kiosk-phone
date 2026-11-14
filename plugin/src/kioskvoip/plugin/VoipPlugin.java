@@ -121,6 +121,15 @@ public final class VoipPlugin implements KioskPlugin {
             h.log("micGain is not a number; using 8");
             bridge.setMicGain(8.0);
         }
+        String videoUrl = text(s, "videoUrl");
+        if (!videoUrl.isEmpty()) {
+            String bad = kioskvoip.video.RtspSource.problem(videoUrl);
+            if (bad != null) {
+                h.log("doorbell video off: " + bad);
+                videoUrl = "";
+            }
+        }
+        bridge.setVideo(videoUrl, text(s, "videoCallers"));
         sip = new SipClient(config, bridge);
         bridge.attach(sip);
         sip.start();
