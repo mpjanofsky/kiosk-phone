@@ -6,7 +6,7 @@
   "apiVersion": 1,
   "minAndroidSdk": 24,
   "entryClass": "kioskvoip.plugin.VoipPlugin",
-  "description": "Turns this kiosk into a SIP phone on your PBX. Calls ring on the screen, and pages and announcements play through Kiosk Satellite's own intercom.",
+  "description": "Turns this kiosk into a SIP phone on your PBX. Calls ring on the screen, and pages and announcements play through Kiosk Satellite's own intercom. Optional: a doorbell camera's picture on the call card.",
   "author": "Mike Janofsky",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -85,6 +85,22 @@
       "default": "8",
       "group": "Kiosk intercom",
       "description": "Boosts your voice on calls if the caller finds it quiet. 1 = off, up to 30. (number)"
+    },
+    {
+      "key": "videoUrl",
+      "type": "secret",
+      "title": "Camera stream",
+      "default": "",
+      "group": "Doorbell video",
+      "description": "rtsp://user:password@host:554/path of an H.264 camera (for example go2rtc). Shown on the call card while it rings and during the call. Empty = off."
+    },
+    {
+      "key": "videoCallers",
+      "type": "string",
+      "title": "Callers with video",
+      "default": "",
+      "group": "Doorbell video",
+      "description": "Comma-separated numbers or names (part of the caller ID, e.g. 620). Empty = every call."
     }
   ],
   "groups": [
@@ -100,6 +116,9 @@
     },
     {
       "title": "Kiosk intercom"
+    },
+    {
+      "title": "Doorbell video"
     }
   ]
 }

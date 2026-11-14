@@ -5,6 +5,7 @@ import kioskvoip.intercom.Broadcast;
 import kioskvoip.intercom.Call;
 import kioskvoip.intercom.IntercomClient;
 import kioskvoip.sip.SipClient;
+import kioskvoip.video.RtspSource;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -38,7 +39,10 @@ public final class PageBridge implements SipClient.Listener {
     private volatile SipClient sip;
     private Broadcast current;
     private Call currentCall;
+    private CallVideo currentVideo;
     private String currentCaller;
+    private volatile CallVideo.Config video = new CallVideo.Config("", "");
+    private volatile java.util.function.Function<String, RtspSource> videoSources = url -> new RtspSource(url, this::log);
 
     public PageBridge(IntercomClient intercom, Events events) {
         this.intercom = intercom;
@@ -58,6 +62,15 @@ public final class PageBridge implements SipClient.Listener {
         }
         return out;
     }
+
+    /**
+     * Doorbell picture: calls from a matching caller ring the kiosk with video pulled from {@code url} (rtsp://).
+     * {@code callers}: comma-separated parts of the caller text, empty = all calls; an empty URL turns it off.
+     */
+    public void setVideo(String url, String callers) { video = new CallVideo.Config(url, callers); }
+
+    /** Tests swap the camera for a fake one. */
+    void setVideoSources(java.util.function.Function<String, RtspSource> factory) { videoSources = factory; }
 
     /** The SipClient this bridge listens to, so a kiosk-side Dismiss can hang up. */
     public void attach(SipClient sip) { this.sip = sip; }
@@ -82,6 +95,8 @@ public final class PageBridge implements SipClient.Listener {
 
     private SipClient.Answer onCallInvite(String caller, String codec) {
         AtomicReference<Call> placed = new AtomicReference<>();
+        // The camera starts with the INVITE, so a key frame is usually in hand by the time the kiosk rings.
+        CallVideo picture = CallVideo.start(video, caller, events::log, videoSources);
         Call.Listener listener = new Call.Listener() {
             @Override public void onAnswered() {
                 Call call = placed.get();
@@ -92,11 +107,13 @@ public final class PageBridge implements SipClient.Listener {
                 events.onCall(caller, "answered", "answered on the kiosk");
             }
             @Override public void onDeclined() {
+                if (picture != null) picture.stop();
                 forget(placed.get());
                 attached().declineRinging(603, "Decline");
                 events.onCall(caller, "declined", "declined on the kiosk");
             }
             @Override public void onEnded(String reason) {
+                if (picture != null) picture.stop();
                 SipClient client = attached();
                 forget(placed.get());
                 // Still ringing: the kiosk gave up (missed). Answered: hang up the caller.
@@ -108,8 +125,9 @@ public final class PageBridge implements SipClient.Listener {
                 attached().sendAudio(gain == 1.0 ? pcm : applyGain(pcm, gain));
             }
         };
-        IntercomClient.Outcome outcome = intercom.call(caller, listener);
+        IntercomClient.Outcome outcome = intercom.call(caller, listener, picture != null);
         if (!outcome.started()) {
+            if (picture != null) picture.stop();
             int code = IntercomClient.BUSY.equals(outcome.status) ? 486 : 480;
             events.onPage(caller, outcome.status, code, codec, outcome.detail + ", call, codec " + codec);
             return code == 486 ? SipClient.Answer.busy() : SipClient.Answer.unavailable();
@@ -117,11 +135,19 @@ public final class PageBridge implements SipClient.Listener {
         placed.set(outcome.call);
         synchronized (this) {
             currentCall = outcome.call;
+            currentVideo = picture;
             currentCaller = caller;
+        }
+        if (picture != null) {
+            // Opening the video socket can take a moment; the 180 Ringing should not wait for it.
+            Thread t = new Thread(() -> picture.attach(outcome.call), "call-video");
+            t.setDaemon(true);
+            t.start();
         }
         events.onPage(caller, outcome.status, 180, codec, outcome.detail + ", call, codec " + codec);
         events.onCall(caller, "ringing", "ringing on the kiosk");
         return SipClient.Answer.ring(reason -> {
+            if (picture != null) picture.stop();
             outcome.call.cancel();
             forget(outcome.call);
             events.onCall(caller, "cancelled", reason);
@@ -137,6 +163,7 @@ public final class PageBridge implements SipClient.Listener {
     private synchronized void forget(Call call) {
         if (currentCall == call) {
             currentCall = null;
+            currentVideo = null;
             currentCaller = null;
         }
     }
@@ -173,15 +200,19 @@ public final class PageBridge implements SipClient.Listener {
     @Override public void onCallEnded(String reason, long packets, long dropped) {
         Broadcast ended;
         Call endedCall;
+        CallVideo endedVideo;
         String caller;
         synchronized (this) {
             ended = current;
             endedCall = currentCall;
+            endedVideo = currentVideo;
             caller = currentCaller;
             current = null;
             currentCall = null;
+            currentVideo = null;
             currentCaller = null;
         }
+        if (endedVideo != null) endedVideo.stop();
         if (endedCall != null) {
             endedCall.end();
             events.onCall(caller, "ended", String.format("%s; %d RTP packets, %d lost", reason, packets, dropped));

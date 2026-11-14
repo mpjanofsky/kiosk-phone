@@ -15,6 +15,7 @@ A [Kiosk Satellite](https://kiosksatellite.com) plugin that turns a kiosk into a
 - 📞 **A real SIP phone:** The kiosk registers as its own extension, so your PBX treats it like any other phone.
 - 🔔 **Calls ring the kiosk:** Answer or Decline on the screen, then talk both ways through the kiosk's speaker and microphone, using the native Kiosk Satellite Intercom.
 - 📢 **PBX paging and announcements:** Page the extension or a page group in your PBX and the kiosk plays it through Kiosk Satellite's own intercom as an announcement: same chime, same volume, same Do Not Disturb. Dial your PBX's paging or intercom code for the extension, or add it to a page group, and the kiosk answers on its own.
+- 🎥 **Doorbell video:** Calls from a door station can show its camera on the call card while it rings and during the call, through Kiosk Satellite's own intercom video. No SIP video needed: the plugin pulls the camera's H.264 over RTSP itself.
 - 🏠 **Status in Home Assistant:** Whether it is registered, the last call (missed, blocked, declined, answered, with the reason, the audio codec and the time), how fast a page answered, and the call state show up as Kiosk Satellite entities. Home Assistant's history of **Last call** is your call log.
 
 Kiosk Phone doesn't bypass Kiosk Satellite's intercom settings. Audio goes through the intercom, so Do Not Disturb, Lockdown Mode, Accept announcements, the intercom switch, a call already in progress and Maximum call duration all apply as they do for any other intercom call. When the kiosk can't take a page, it stays quiet and the caller is told so.
@@ -58,6 +59,17 @@ Set these on each kiosk, in the plugin's row. Every kiosk needs its own extensio
 | Kiosk intercom | **Intercom key** | This kiosk's Kiosk Satellite intercom key | |
 | Kiosk intercom | **KS admin port** | Kiosk Satellite's admin port | `2324` |
 | Kiosk intercom | **Microphone gain** | Boosts the mic for calls, 1 (off) to 30. Some kiosk mics are very quiet. | `8` |
+| Doorbell video | **Camera stream** | `rtsp://user:password@host:554/path` of an H.264 camera, e.g. a go2rtc stream. Empty = off | empty |
+| Doorbell video | **Callers with video** | Comma-separated parts of the caller ID (number or name), e.g. `620`. Empty = every call | empty |
+
+## 🎥 Doorbell video
+
+When a call comes from a caller listed under **Callers with video**, the plugin opens the camera stream as soon as the INVITE arrives, offers video to the kiosk (`"video": {"camera": true}` in the intercom call) and, if the kiosk takes it, feeds the intercom video socket: one H.264 access unit per message, behind a 9-byte header (flags, width, height, capture time), as Kiosk Satellite's own kiosks do. The last key frame is cached, so the card shows a picture almost at once and the live stream follows from the next key frame. The camera connection lasts exactly as long as the call.
+
+- The kiosk needs **Video calls** on in its intercom settings; it does not need a camera of its own.
+- The camera must send **H.264** (Baseline, Main or High; no B-frames recommended). Nothing is transcoded. RTP runs inside the RTSP connection (TCP), Basic or Digest auth.
+- A go2rtc server with `allow_from` must list the kiosk's IP.
+- Video only: the call's audio still comes over SIP.
 
 ## 🔒 Privacy and security
 

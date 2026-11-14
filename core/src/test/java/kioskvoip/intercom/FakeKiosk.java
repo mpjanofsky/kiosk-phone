@@ -38,6 +38,14 @@ final class FakeKiosk implements AutoCloseable {
     /** "call broadcast <name>", "action hangup", "text {...}", "audio closed", "reject <why>". */
     final BlockingQueue<String> events = new LinkedBlockingQueue<>();
     final List<byte[]> frames = new CopyOnWriteArrayList<>();
+    /** Answers a call's video offer with {@code "video": true}. */
+    volatile boolean takesVideo;
+    /** Acks every video frame, like KS; off = a stalled kiosk. */
+    volatile boolean ackVideo = true;
+    /** Video frames received (header + Annex B), and the video offer of the last call (null = none). */
+    final List<byte[]> videoFrames = new CopyOnWriteArrayList<>();
+    volatile Object lastVideoOffer;
+    private volatile OutputStream videoOut;
     private final List<String> usedNonces = new CopyOnWriteArrayList<>();
 
     FakeKiosk(String key) throws IOException {
@@ -105,12 +113,14 @@ final class FakeKiosk implements AutoCloseable {
                 }
                 Map<?, ?> from = (Map<?, ?>) call.get("from");
                 events.add("call " + call.get("kind") + " " + from.get("name"));
+                lastVideoOffer = call.get("video");
+                boolean video = takesVideo && lastVideoOffer instanceof Map;
                 if ("call".equals(call.get("kind"))) {
                     callId = (String) call.get("call");
                     callbackHost = (String) from.get("address");
                     callbackPort = ((Long) from.get("port")).intValue();
                 }
-                json(out, 200, "{\"status\":\"" + callStatus + "\"}");
+                json(out, 200, "{\"status\":\"" + callStatus + "\"" + (video ? ",\"video\":true" : "") + "}");
             } else if (method.equals("POST") && path.startsWith("/api/intercom/call/")) {
                 String id = path.substring("/api/intercom/call/".length());
                 if (!validToken(bearer.replaceFirst("^Bearer ", ""), id)) {
@@ -132,6 +142,20 @@ final class FakeKiosk implements AutoCloseable {
                 out.flush();
                 if (micFrames > 0) micTask(out);
                 audio(in, out);
+            } else if (method.equals("GET") && path.startsWith("/api/intercom/video/")) {
+                String id = path.substring("/api/intercom/video/".length());
+                String token = target.substring(target.indexOf("?token=") + 7);
+                if (!validToken(token, id)) {
+                    json(out, 403, "{}");
+                    return;
+                }
+                String accept = WebSocket.accept(headers.get("sec-websocket-key"));
+                out.write(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                    + "Sec-WebSocket-Accept: " + accept + "\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+                out.flush();
+                videoOut = out;
+                events.add("video open");
+                video(in, out);
             } else {
                 json(out, 404, "{}");
             }
@@ -200,6 +224,45 @@ final class FakeKiosk implements AutoCloseable {
             }
         }
         events.add("audio closed");
+    }
+
+    /** The kiosk asks the caller for a key frame. */
+    void requestKey() throws IOException { serverText(videoOut, "{\"type\":\"key\"}"); }
+
+    private void video(InputStream in, OutputStream out) throws IOException {
+        int received = 0;
+        while (true) {
+            int b0 = in.read(), b1 = in.read();
+            if (b0 < 0 || b1 < 0) break;
+            if ((b1 & 0x80) == 0) { events.add("reject unmasked frame"); break; }
+            long n = b1 & 0x7f;
+            if (n == 126) n = (in.read() << 8) | in.read();
+            else if (n == 127) { n = 0; for (int i = 0; i < 8; i++) n = (n << 8) | in.read(); }
+            byte[] mask = Http.exactly(in, 4), payload = Http.exactly(in, (int) n);
+            for (int i = 0; i < n; i++) payload[i] ^= mask[i & 3];
+            int opcode = b0 & 0x0f;
+            if (opcode == 0x1) {
+                events.add("video text " + new String(payload, StandardCharsets.UTF_8));
+            } else if (opcode == 0x2) {
+                videoFrames.add(payload);
+                received++;
+                if (ackVideo) serverText(out, "{\"type\":\"ack\",\"n\":" + received + "}");
+            } else if (opcode == 0x8) {
+                synchronized (out) { out.write(new byte[] { (byte) 0x88, 0 }); out.flush(); }
+                break;
+            }
+        }
+        events.add("video closed");
+    }
+
+    private static void serverText(OutputStream out, String text) throws IOException {
+        if (out == null) throw new IOException("no video socket");
+        byte[] d = text.getBytes(StandardCharsets.UTF_8);
+        synchronized (out) {
+            out.write(new byte[] { (byte) 0x81, (byte) d.length });
+            out.write(d);
+            out.flush();
+        }
     }
 
     private boolean validToken(String token, String call) {

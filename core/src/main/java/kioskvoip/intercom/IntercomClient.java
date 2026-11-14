@@ -83,9 +83,11 @@ public final class IntercomClient {
         final Outcome failed;
         final int port;
         final String call, status;
+        /** The kiosk said it takes video on this call ({@code "video": true} in its reply). */
+        final boolean video;
 
-        Placed(Outcome failed, int port, String call, String status) {
-            this.failed = failed; this.port = port; this.call = call; this.status = status;
+        Placed(Outcome failed, int port, String call, String status, boolean video) {
+            this.failed = failed; this.port = port; this.call = call; this.status = status; this.video = video;
         }
     }
 
@@ -139,7 +141,7 @@ public final class IntercomClient {
      * timeouts. {@code callerName} is shown on the kiosk card (trimmed to 80 chars). {@code onKioskEnded} runs if the
      * kiosk ends it first (e.g. Dismiss on the card).
      */
-    private Placed place(String kind, String callerName, java.util.function.Consumer<String> beforePost) {
+    private Placed place(String kind, String callerName, java.util.function.Consumer<String> beforePost, boolean video) {
         Identity id;
         try {
             id = identity();
@@ -167,6 +169,12 @@ public final class IntercomClient {
         body.put("call", call);
         body.put("kind", kind);
         body.put("from", fromJson);
+        if (video) {
+            // As a kiosk with its camera on offers it (intercom_manager.dart _place); the kiosk answers "video": true.
+            Map<String, Object> offer = new LinkedHashMap<>();
+            offer.put("camera", true);
+            body.put("video", offer);
+        }
 
         if (beforePost != null) beforePost.accept(call);
         Http.Response r;
@@ -176,9 +184,12 @@ public final class IntercomClient {
             return fail(UNREACHABLE, "call: " + failure.getMessage());
         }
         String status = null;
+        boolean takesVideo = false;
         try {
-            Object s = Json.object(r.body).get("status");
+            Map<String, Object> reply = Json.object(r.body);
+            Object s = reply.get("status");
             if (s instanceof String) status = (String) s;
+            takesVideo = Boolean.TRUE.equals(reply.get("video"));
         } catch (IllegalArgumentException ignored) { }
         if (r.status == 403) return fail(KEY, "kiosk rejected our key (HTTP 403)");
         if (r.status == 409 || r.status == 426) return fail(TLS, "encryption mismatch (HTTP " + r.status + ")");
@@ -190,15 +201,15 @@ public final class IntercomClient {
             default:
                 return fail(ERROR, "unexpected call status " + status);
         }
-        return new Placed(null, id.port, call, status);
+        return new Placed(null, id.port, call, status, video && takesVideo);
     }
 
     private static Placed fail(String status, String detail) {
-        return new Placed(new Outcome(status, detail, null), 0, null, status);
+        return new Placed(new Outcome(status, detail, null), 0, null, status, false);
     }
 
     public Outcome broadcast(String callerName, Runnable onKioskEnded) {
-        Placed placed = place("broadcast", callerName, null);
+        Placed placed = place("broadcast", callerName, null, false);
         if (placed.failed != null) return placed.failed;
         int port = placed.port;
         String call = placed.call, status = placed.status;
@@ -219,19 +230,26 @@ public final class IntercomClient {
      * given to the constructor must point at that server, since the kiosk calls back there. Blocks for up to a few
      * timeouts, like {@link #broadcast}.
      */
-    public Outcome call(String callerName, Call.Listener listener) {
+    public Outcome call(String callerName, Call.Listener listener) { return call(callerName, listener, false); }
+
+    /**
+     * Like {@link #call(String, Call.Listener)}; with {@code video} the call offers a picture, and
+     * {@link Call#videoAccepted()} tells whether the kiosk takes it.
+     */
+    public Outcome call(String callerName, Call.Listener listener, boolean video) {
         CallbackServer server = callbacks;
         if (server == null) return new Outcome(ERROR, "no callback server configured for calls", null);
         // The Call registers for callbacks before the POST, so an instant answer (auto-answer kiosks) cannot be missed.
         Call[] created = new Call[1];
-        Placed placed = place("call", callerName, id -> created[0] = new Call(this, server, 0, id, listener));
+        Placed placed = place("call", callerName, id -> created[0] = new Call(this, server, 0, id, listener), video);
         if (placed.failed != null) {
             if (created[0] != null) created[0].discard();
             return placed.failed;
         }
         Call call = created[0];
         call.setPort(placed.port);
-        log.accept("call " + shortId(placed.call) + " placed (" + placed.status + ")");
+        call.setVideoAccepted(placed.video);
+        log.accept("call " + shortId(placed.call) + " placed (" + placed.status + (placed.video ? ", takes video" : "") + ")");
         return new Outcome(placed.status, "kiosk answered " + placed.status, null, call);
     }
 
