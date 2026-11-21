@@ -116,7 +116,7 @@
       "title": "Button 1",
       "default": "",
       "group": "Call buttons",
-      "description": "Label | action, optionally | mdi:icon. Actions: dtmf:1 (RFC 2833 in the call), info:1 (SIP INFO), url:https://... (POST) or get:https://... (GET). DTMF works once the call is answered; a URL works while it rings too. Example: Open gate | dtmf:1 | mdi:gate-open. Needs Kiosk Satellite 2026.11.24 or newer."
+      "description": "Label | action, optionally | mdi:icon. Actions: dtmf:1 (RFC 2833 in the call), info:1 (SIP INFO), url:https://... (POST) or get:https://... (GET); http://user:password@host/... for devices with Basic or Digest login. DTMF works once the call is answered; a URL works while it rings too. Example: Open gate | dtmf:1 | mdi:gate-open. Needs Kiosk Satellite 2026.11.24 or newer."
     },
     {
       "key": "button2",

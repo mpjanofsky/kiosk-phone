@@ -80,27 +80,56 @@ public final class PageBridge implements SipClient.Listener {
 
     void setUrlRunner(ButtonRunner runner) { urlRunner = runner; }
 
-    /** POST (empty body) or GET with 5 s timeouts; any 2xx is success. */
+    /**
+     * POST (empty body) or GET with 5 s timeouts; any 2xx is success. {@code user:password@} in the URL is answered
+     * to a 401 with Basic or Digest auth (one retry).
+     */
     static String callUrl(CallButtons.Button button) {
-        java.net.HttpURLConnection c = null;
+        HttpAuth auth;
         try {
-            c = (java.net.HttpURLConnection) new java.net.URL(button.target).openConnection();
-            c.setConnectTimeout(5000);
-            c.setReadTimeout(5000);
-            c.setInstanceFollowRedirects(false);
-            if (button.kind == CallButtons.Kind.POST) {
-                c.setRequestMethod("POST");
-                c.setDoOutput(true);
-                c.setFixedLengthStreamingMode(0);
-                c.getOutputStream().close();
-            }
-            int code = c.getResponseCode();
-            return code >= 200 && code < 300 ? null : "HTTP " + code;
-        } catch (java.io.IOException | RuntimeException failure) {
-            return failure.getClass().getSimpleName() + ": " + failure.getMessage();
-        } finally {
-            if (c != null) c.disconnect();
+            auth = HttpAuth.of(button.target);
+        } catch (IllegalArgumentException bad) {
+            return bad.getMessage();
         }
+        String method = button.kind == CallButtons.Kind.POST ? "POST" : "GET";
+        String authorization = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            java.net.HttpURLConnection c = null;
+            try {
+                c = (java.net.HttpURLConnection) new java.net.URL(auth.url).openConnection();
+                c.setConnectTimeout(5000);
+                c.setReadTimeout(5000);
+                c.setInstanceFollowRedirects(false);
+                c.setUseCaches(false);
+                if (authorization != null) c.setRequestProperty("Authorization", authorization);
+                if (method.equals("POST")) {
+                    c.setRequestMethod("POST");
+                    c.setDoOutput(true);
+                    c.getOutputStream().close(); // empty body, Content-Length: 0
+                }
+                int code = c.getResponseCode();
+                if (code == 401 && authorization == null && auth.hasCredentials()) {
+                    authorization = auth.answer(challenges(c.getHeaderFields()), method);
+                    if (authorization != null) continue;
+                    return "HTTP 401 (no supported auth offered)";
+                }
+                return code >= 200 && code < 300 ? null : "HTTP " + code;
+            } catch (java.io.IOException | RuntimeException failure) {
+                return failure.getClass().getSimpleName() + ": " + failure.getMessage();
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }
+        return "HTTP 401";
+    }
+
+    /** WWW-Authenticate lines; header names differ in case between HTTP stacks. */
+    private static java.util.List<String> challenges(java.util.Map<String, java.util.List<String>> headers) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (java.util.Map.Entry<String, java.util.List<String>> e : headers.entrySet()) {
+            if (e.getKey() != null && e.getKey().equalsIgnoreCase("WWW-Authenticate")) out.addAll(e.getValue());
+        }
+        return out;
     }
 
     /** One tap on a call-card button during a call from {@code caller}. */

@@ -88,6 +88,7 @@ With Kiosk Satellite 2026.11.24 or newer, the plugin can put up to three buttons
 - **DTMF needs an answered call.** Before Answer, a DTMF or INFO button shows an error; URL buttons work at any time, so a gate can be opened without talking.
 - **Which DTMF mode?** Use the one your door station expects. `dtmf:` only works if the caller offers `telephone-event` in its SDP; if not, the button fails and you need `info:`.
 - Digits are `0-9`, `*`, `#` and `A-D`, up to 16. A URL counts as done on any 2xx answer within 5 s.
+- **Devices with a login** (e.g. Akuvox `fcgi/OpenDoor`): put the credentials in the URL, `get:http://user:password@192.168.1.20/fcgi/OpenDoor?action=OpenDoor&DoorNum=1`. The plugin answers the device's 401 with Basic or Digest auth (one retry). Button settings are plain text, so anyone who can open the plugin settings sees the password: use a dedicated API user where the device allows it.
 - The button shows a check mark when the action worked and an error when it didn't.
 
 Tested with an Alphago ALP-600 (SIP INFO) on a FRITZ!Box.
