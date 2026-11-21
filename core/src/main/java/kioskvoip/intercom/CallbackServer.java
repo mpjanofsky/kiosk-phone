@@ -24,6 +24,12 @@ public final class CallbackServer implements Closeable {
     public interface Handler {
         /** {@code answer}, {@code decline}, {@code missed}, {@code hangup} or {@code cancel}. Runs on a server thread. */
         void onAction(String action);
+
+        /**
+         * A tap on one of our call-card buttons ({@code {"action":"custom","id":...}}, KS 2026.11.24+). Runs on a server
+         * thread before the reply; true answers 200 (the button shows a check), false an error (error mark).
+         */
+        default boolean onCustom(String id) { return false; }
     }
 
     private static final String PREFIX = "/api/intercom/call/";
@@ -69,7 +75,7 @@ public final class CallbackServer implements Closeable {
 
     private void handle(Socket socket) {
         try (Socket s = socket) {
-            s.setSoTimeout(3000);
+            s.setSoTimeout(10000); // a button's URL call may take a few seconds before we reply
             InputStream in = new BufferedInputStream(s.getInputStream());
             OutputStream out = s.getOutputStream();
             String[] request = Http.line(in).split(" ");
@@ -83,8 +89,22 @@ public final class CallbackServer implements Closeable {
             if (!bearer.startsWith("Bearer ") || !validToken(bearer.substring(7), call)) { reply(out, 403, "{}"); return; }
             Handler handler = handlers.get(call);
             if (handler == null) { reply(out, 404, "{}"); return; }
-            Object action = Json.object(body).get("action");
+            Map<String, Object> json = Json.object(body);
+            Object action = json.get("action");
             if (!(action instanceof String)) { reply(out, 400, "{}"); return; }
+            if ("custom".equals(action)) {
+                Object id = json.get("id");
+                if (!(id instanceof String)) { reply(out, 400, "{}"); return; }
+                boolean done;
+                try {
+                    done = handler.onCustom((String) id);
+                } catch (RuntimeException failure) {
+                    log.accept("callback: button " + id + ": " + failure.getMessage());
+                    done = false;
+                }
+                reply(out, done ? 200 : 500, done ? "{\"ok\":true}" : "{\"ok\":false}");
+                return;
+            }
             reply(out, 200, "{\"ok\":true}");
             handler.onAction((String) action);
         } catch (IOException | RuntimeException failure) {

@@ -142,6 +142,11 @@ public final class IntercomClient {
      * kiosk ends it first (e.g. Dismiss on the card).
      */
     private Placed place(String kind, String callerName, java.util.function.Consumer<String> beforePost, boolean video) {
+        return place(kind, callerName, beforePost, video, null);
+    }
+
+    private Placed place(String kind, String callerName, java.util.function.Consumer<String> beforePost, boolean video,
+            java.util.List<Map<String, Object>> actions) {
         Identity id;
         try {
             id = identity();
@@ -175,6 +180,8 @@ public final class IntercomClient {
             offer.put("camera", true);
             body.put("video", offer);
         }
+        // Call-card buttons (KS 2026.11.24+; older versions ignore the field). A tap comes back as action "custom".
+        if (actions != null && !actions.isEmpty()) body.put("actions", new java.util.ArrayList<Object>(actions));
 
         if (beforePost != null) beforePost.accept(call);
         Http.Response r;
@@ -237,11 +244,16 @@ public final class IntercomClient {
      * {@link Call#videoAccepted()} tells whether the kiosk takes it.
      */
     public Outcome call(String callerName, Call.Listener listener, boolean video) {
+        return call(callerName, listener, video, null);
+    }
+
+    /** Like {@link #call(String, Call.Listener, boolean)}, with up to 3 call-card buttons ({id, label, icon}). */
+    public Outcome call(String callerName, Call.Listener listener, boolean video, java.util.List<Map<String, Object>> actions) {
         CallbackServer server = callbacks;
         if (server == null) return new Outcome(ERROR, "no callback server configured for calls", null);
         // The Call registers for callbacks before the POST, so an instant answer (auto-answer kiosks) cannot be missed.
         Call[] created = new Call[1];
-        Placed placed = place("call", callerName, id -> created[0] = new Call(this, server, 0, id, listener), video);
+        Placed placed = place("call", callerName, id -> created[0] = new Call(this, server, 0, id, listener), video, actions);
         if (placed.failed != null) {
             if (created[0] != null) created[0].discard();
             return placed.failed;

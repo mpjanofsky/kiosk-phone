@@ -92,8 +92,11 @@ class SipClientTest {
     }
 
     private String invite(String callId, String codecs) {
-        String sdp = "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio "
-            + pbxRtp.getLocalPort() + " RTP/AVP " + codecs + "\r\n";
+        return inviteSdp(callId, "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio "
+            + pbxRtp.getLocalPort() + " RTP/AVP " + codecs + "\r\n");
+    }
+
+    private String inviteSdp(String callId, String sdp) {
         return "INVITE sip:1001@127.0.0.1:" + clientPort + " SIP/2.0\r\n"
             + "Via: SIP/2.0/UDP 127.0.0.1:" + pbx.getLocalPort() + ";branch=z9hG4bK" + callId + "\r\n"
             + "From: \"Page\" <sip:900@127.0.0.1>;tag=from" + callId + "\r\n"
@@ -259,5 +262,61 @@ class SipClientTest {
         send(invite("r6", "0"));
         assertEquals(486, finalResponse().status());
         assertTrue(client.isRinging());
+    }
+
+    @Test
+    void sendsDtmfInRtpAndAsSipInfo() throws Exception {
+        String sdp = "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio "
+            + pbxRtp.getLocalPort() + " RTP/AVP 8 101\r\na=rtpmap:8 PCMA/8000\r\na=rtpmap:101 telephone-event/8000\r\na=fmtp:101 0-16\r\n";
+        send(inviteSdp("d1", sdp));
+        assertEquals("invite PCMA", events.poll(3, TimeUnit.SECONDS));
+        SipMessage ok = finalResponse();
+        assertEquals(200, ok.status());
+        assertTrue(ok.body.contains("RTP/AVP 8 101"), ok.body);
+        assertTrue(ok.body.contains("a=rtpmap:101 telephone-event/8000"), ok.body);
+        assertEquals("started", events.poll(3, TimeUnit.SECONDS));
+
+        assertNull(client.sendDtmf("1", false));
+        pbxRtp.setSoTimeout(1000);
+        int events101 = 0, ends = 0;
+        boolean marker = false;
+        long deadline = System.currentTimeMillis() + 2000;
+        while (System.currentTimeMillis() < deadline && ends < 3) {
+            DatagramPacket p = new DatagramPacket(new byte[512], 512);
+            pbxRtp.receive(p);
+            byte[] b = p.getData();
+            if ((b[1] & 0x7f) != 101) continue;
+            if (events101 == 0) marker = (b[1] & 0x80) != 0;
+            events101++;
+            assertEquals(4, p.getLength() - 12);
+            assertEquals(1, b[12]);
+            if ((b[13] & 0x80) != 0) ends++;
+        }
+        assertTrue(marker, "first event packet has the marker bit");
+        assertEquals(3, ends, "three end packets");
+        assertEquals(11, events101);
+
+        assertNull(client.sendDtmf("2", true));
+        SipMessage info;
+        do { info = receive(); } while (!info.isRequest() || !"INFO".equals(info.method()));
+        assertEquals("application/dtmf-relay", info.header("content-type"));
+        assertTrue(info.body.startsWith("Signal=2"), info.body);
+        assertEquals("d1", info.header("call-id"));
+        assertTrue(info.header("from").contains("tag="), "from our side of the dialog");
+    }
+
+    @Test
+    void dtmfWithoutTelephoneEventNeedsSipInfo() throws Exception {
+        send(invite("d2", "0"));
+        assertEquals("invite PCMU", events.poll(3, TimeUnit.SECONDS));
+        SipMessage ok = finalResponse();
+        assertFalse(ok.body.contains("telephone-event"));
+        assertNotNull(client.sendDtmf("1", false));
+        assertNull(client.sendDtmf("1", true));
+    }
+
+    @Test
+    void dtmfWithoutCallFails() {
+        assertNotNull(client.sendDtmf("1", true));
     }
 }

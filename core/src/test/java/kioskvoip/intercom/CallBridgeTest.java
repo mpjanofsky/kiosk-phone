@@ -26,6 +26,7 @@ class CallBridgeTest {
     SipClient sip;
     int sipPort;
     final BlockingQueue<String> bridgeEvents = new LinkedBlockingQueue<>();
+    PageBridge bridge;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -35,7 +36,7 @@ class CallBridgeTest {
         IntercomClient.Peer self = new IntercomClient.Peer("0123456789abcdef", "KS VoIP", "127.0.0.1", callbacks.port(), "0.1.0");
         IntercomClient intercom = new IntercomClient("127.0.0.1", kiosk.adminPort(), IntercomClientTest.KEY, self, m -> { });
         intercom.setCallbackServer(callbacks);
-        PageBridge bridge = new PageBridge(intercom, new PageBridge.Events() {
+        bridge = new PageBridge(intercom, new PageBridge.Events() {
             public void onRegistration(boolean registered, String detail) { }
             public void onPage(String caller, String status, int sipCode, String codec, String detail) { }
             public void onPageEnded(String caller, String reason) { bridgeEvents.add("page ended"); }
@@ -205,5 +206,47 @@ class CallBridgeTest {
         send(invite("k5", "Alert-Info: <http://127.0.0.1>;info=Ring Answer\r\nCall-Info: <sip:900@127.0.0.1>;answer-after=0\r\n"));
         assertTrue(line(nextResponse()).startsWith("SIP/2.0 200"));
         assertEquals("call broadcast Front Desk (900)", kiosk.events.poll(3, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void callCardButtonsRunUrlAndSipInfo() throws Exception {
+        java.util.List<String> ran = new java.util.concurrent.CopyOnWriteArrayList<>();
+        kioskvoip.bridge.PageBridgeHooks.urlRunner(bridge, b -> { ran.add(b.label + " " + b.target); return b.target.contains("fail") ? "HTTP 500" : null; });
+        bridge.setButtons(new kioskvoip.bridge.CallButtons(java.util.Arrays.asList(
+            "Light | url:http://ha.local/api/webhook/light | mdi:lightbulb", "Gate | info:3", "Broken | url:http://ha.local/fail"), "900"));
+        send(invite("b1", ""));
+        assertTrue(line(nextResponse()).startsWith("SIP/2.0 180"));
+        assertEquals("ringing", bridgeEvents.poll(3, TimeUnit.SECONDS));
+        java.util.List<?> actions = (java.util.List<?>) kiosk.lastActions;
+        assertNotNull(actions, "buttons offered for caller 900");
+        assertEquals(3, actions.size());
+        assertEquals("Light", ((java.util.Map<?, ?>) actions.get(0)).get("label"));
+        assertEquals("mdi:lightbulb", ((java.util.Map<?, ?>) actions.get(0)).get("icon"));
+        assertNull(((java.util.Map<?, ?>) actions.get(1)).get("icon"));
+
+        String lightId = (String) ((java.util.Map<?, ?>) actions.get(0)).get("id");
+        String gateId = (String) ((java.util.Map<?, ?>) actions.get(1)).get("id");
+        String brokenId = (String) ((java.util.Map<?, ?>) actions.get(2)).get("id");
+        assertEquals(200, kiosk.tapButton(lightId), "a URL button works while it rings");
+        assertEquals(java.util.List.of("Light http://ha.local/api/webhook/light"), ran);
+        assertEquals(500, kiosk.tapButton(brokenId), "a failing URL shows the error mark");
+        assertEquals(500, kiosk.tapButton(gateId), "DTMF needs an answered call");
+        assertEquals(500, kiosk.tapButton("nope"));
+
+        kiosk.answer();
+        String ok = nextResponse();
+        assertTrue(line(ok).startsWith("SIP/2.0 200"), line(ok));
+        assertEquals(200, kiosk.tapButton(gateId));
+        String info = waitFor("INFO ");
+        assertTrue(info.contains("Signal=3"), info);
+    }
+
+    @Test
+    void noButtonsForOtherCallers() throws Exception {
+        bridge.setButtons(new kioskvoip.bridge.CallButtons(java.util.Arrays.asList("Gate | info:3"), "620"));
+        send(invite("b2", ""));
+        assertTrue(line(nextResponse()).startsWith("SIP/2.0 180"));
+        assertEquals("ringing", bridgeEvents.poll(3, TimeUnit.SECONDS));
+        assertNull(kiosk.lastActions);
     }
 }

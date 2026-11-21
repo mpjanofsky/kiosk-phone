@@ -16,11 +16,16 @@ public final class Sdp {
     public static final class Offer {
         public final InetAddress address;
         public final int port, payload;
+        /** The offer's telephone-event payload type (RFC 4733 DTMF), or -1 when it has none. */
+        public final int event;
 
-        Offer(InetAddress address, int port, int payload) {
+        Offer(InetAddress address, int port, int payload) { this(address, port, payload, -1); }
+
+        Offer(InetAddress address, int port, int payload, int event) {
             this.address = address;
             this.port = port;
             this.payload = payload;
+            this.event = event;
         }
     }
 
@@ -43,6 +48,7 @@ public final class Sdp {
         int port = -1;
         String[] formats = null;
         boolean inAudio = false;
+        java.util.Map<String, String> rtpmaps = new java.util.HashMap<>();
         for (String raw : sdp.split("\\r?\\n")) {
             String line = raw.trim();
             if (line.startsWith("m=")) {
@@ -54,6 +60,9 @@ public final class Sdp {
                     formats = new String[Math.max(0, parts.length - 2)];
                     System.arraycopy(parts, 2, formats, 0, formats.length);
                 }
+            } else if (inAudio && line.startsWith("a=rtpmap:")) {
+                String[] parts = line.substring(9).trim().split("\\s+", 2);
+                if (parts.length == 2) rtpmaps.put(parts[0], parts[1].toLowerCase(java.util.Locale.ROOT));
             } else if (line.startsWith("c=IN IP4 ")) {
                 String ip = line.substring(9).trim().split("/")[0];
                 if (inAudio) mediaIp = ip;
@@ -63,23 +72,38 @@ public final class Sdp {
         if (formats == null || port < 1 || port > 65535) throw new IllegalArgumentException("SDP has no audio stream");
         String ip = mediaIp != null ? mediaIp : sessionIp;
         if (ip == null) throw new IllegalArgumentException("SDP has no IPv4 media address");
+        int event = -1;
+        for (String format : formats) {
+            String map = rtpmaps.get(format);
+            if (map != null && map.startsWith("telephone-event/8000")) {
+                try { event = Integer.parseInt(format); } catch (NumberFormatException ignored) { }
+                break;
+            }
+        }
         for (int wanted : preference) {
             for (String format : formats) {
-                if (format.equals(Integer.toString(wanted))) return new Offer(InetAddress.getByName(ip), port, wanted);
+                if (format.equals(Integer.toString(wanted))) return new Offer(InetAddress.getByName(ip), port, wanted, event);
             }
         }
         throw new IllegalArgumentException("No common codec in offer " + String.join(" ", formats));
     }
 
     public static String answer(InetAddress local, int port, int payload, long sessionId) {
+        return answer(local, port, payload, -1, sessionId);
+    }
+
+    /** With {@code event} >= 0 the answer also takes the offer's telephone-event payload type (DTMF). */
+    public static String answer(InetAddress local, int port, int payload, int event, long sessionId) {
         String ip = local.getHostAddress();
+        String dtmf = event < 0 ? "" : "a=rtpmap:" + event + " telephone-event/8000\r\n" + "a=fmtp:" + event + " 0-16\r\n";
         return "v=0\r\n"
             + "o=- " + sessionId + " 1 IN IP4 " + ip + "\r\n"
             + "s=kiosk-voip\r\n"
             + "c=IN IP4 " + ip + "\r\n"
             + "t=0 0\r\n"
-            + "m=audio " + port + " RTP/AVP " + payload + "\r\n"
+            + "m=audio " + port + " RTP/AVP " + payload + (event < 0 ? "" : " " + event) + "\r\n"
             + "a=rtpmap:" + payload + " " + codecName(payload) + "/8000\r\n"
+            + dtmf
             + "a=ptime:20\r\n"
             + "a=sendrecv\r\n";
     }

@@ -17,6 +17,8 @@ public final class Call implements CallbackServer.Handler {
         void onEnded(String reason);
         /** 16 kHz mono PCM from the kiosk microphone, on the socket reader thread. */
         void onMic(short[] pcm16k);
+        /** A tap on call-card button {@code id}; true when its action ran. */
+        default boolean onButton(String id) { return false; }
     }
 
     private enum State { RINGING, ACTIVE, DONE }
@@ -131,6 +133,13 @@ public final class Call implements CallbackServer.Handler {
             default:
                 client.log("call " + IntercomClient.shortId(id) + " ignoring unknown action");
         }
+    }
+
+    @Override public boolean onCustom(String id) {
+        synchronized (this) {
+            if (state == State.DONE) return false;
+        }
+        return listener.onButton(id);
     }
 
     private void answered() {
