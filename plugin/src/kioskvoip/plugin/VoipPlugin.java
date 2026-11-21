@@ -132,7 +132,7 @@ public final class VoipPlugin implements KioskPlugin {
         bridge.setVideo(videoUrl, text(s, "videoCallers"));
         kioskvoip.bridge.CallButtons buttons = new kioskvoip.bridge.CallButtons(
             java.util.Arrays.asList(text(s, "button1"), text(s, "button2"), text(s, "button3")), text(s, "buttonCallers"));
-        for (String problem : buttons.problems()) h.log("call buttons: " + problem);
+        for (String bad : buttons.problems()) h.log("call buttons: " + bad);
         bridge.setButtons(buttons);
         sip = new SipClient(config, bridge);
         bridge.attach(sip);
