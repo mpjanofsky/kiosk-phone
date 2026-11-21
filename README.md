@@ -16,6 +16,7 @@ A [Kiosk Satellite](https://kiosksatellite.com) plugin that turns a kiosk into a
 - 🔔 **Calls ring the kiosk:** Answer or Decline on the screen, then talk both ways through the kiosk's speaker and microphone, using the native Kiosk Satellite Intercom.
 - 📢 **PBX paging and announcements:** Page the extension or a page group in your PBX and the kiosk plays it through Kiosk Satellite's own intercom as an announcement: same chime, same volume, same Do Not Disturb. Dial your PBX's paging or intercom code for the extension, or add it to a page group, and the kiosk answers on its own.
 - 🎥 **Doorbell video:** Calls from a door station can show its camera on the call card while it rings and during the call, through Kiosk Satellite's own intercom video. No SIP video needed: the plugin pulls the camera's H.264 over RTSP itself.
+- 🔘 **Call buttons:** Up to three buttons on the call card, for example "Open gate". A button sends DTMF to the caller (RFC 2833 or SIP INFO) or calls a URL, e.g. a Home Assistant webhook. Needs Kiosk Satellite 2026.11.24 or newer.
 - 🏠 **Status in Home Assistant:** Whether it is registered, the last call (missed, blocked, declined, answered, with the reason, the audio codec and the time), how fast a page answered, and the call state show up as Kiosk Satellite entities. Home Assistant's history of **Last call** is your call log.
 
 Kiosk Phone doesn't bypass Kiosk Satellite's intercom settings. Audio goes through the intercom, so Do Not Disturb, Lockdown Mode, Accept announcements, the intercom switch, a call already in progress and Maximum call duration all apply as they do for any other intercom call. When the kiosk can't take a page, it stays quiet and the caller is told so.
@@ -61,6 +62,8 @@ Set these on each kiosk, in the plugin's row. Every kiosk needs its own extensio
 | Kiosk intercom | **Microphone gain** | Boosts the mic for calls, 1 (off) to 30. Some kiosk mics are very quiet. | `8` |
 | Doorbell video | **Camera stream** | `rtsp://user:password@host:554/path` of an H.264 camera, e.g. a go2rtc stream. Empty = off | empty |
 | Doorbell video | **Callers with video** | Comma-separated parts of the caller ID (number or name), e.g. `620`. Empty = every call | empty |
+| Call buttons | **Callers with buttons** | Comma-separated parts of the caller ID, e.g. `620`. Empty = every call | empty |
+| Call buttons | **Button 1–3** | `Label \| action \| mdi:icon`, see [Call buttons](#-call-buttons). Empty = no button | empty |
 
 ## 🎥 Doorbell video
 
@@ -70,6 +73,24 @@ When a call comes from a caller listed under **Callers with video**, the plugin 
 - The camera must send **H.264** (Baseline, Main or High; no B-frames recommended). Nothing is transcoded. RTP runs inside the RTSP connection (TCP), Basic or Digest auth.
 - A go2rtc server with `allow_from` must list the kiosk's IP.
 - Video only: the call's audio still comes over SIP.
+
+## 🔘 Call buttons
+
+With Kiosk Satellite 2026.11.24 or newer, the plugin can put up to three buttons on the intercom call card for calls from the callers listed under **Callers with buttons**. Each button is one line: a label, an action and an optional [Material Design icon](https://pictogrammers.com/library/mdi/).
+
+| Action | What it does | Example |
+|---|---|---|
+| `dtmf:<digits>` | Sends the digits as RFC 2833 / RFC 4733 telephone events in the call's audio | `Open gate \| dtmf:1 \| mdi:gate-open` |
+| `info:<digits>` | Sends the digits as SIP INFO (`application/dtmf-relay`), one per digit | `Door \| info:3 \| mdi:door-open` |
+| `url:<http(s) URL>` | POST with an empty body, e.g. a Home Assistant webhook (`post:` works too) | `Light \| url:http://ha.local:8123/api/webhook/porch \| mdi:lightbulb` |
+| `get:<http(s) URL>` | GET request | `Gate \| get:http://192.168.1.20/cgi-bin/relay?on \| mdi:gate` |
+
+- **DTMF needs an answered call.** Before Answer, a DTMF or INFO button shows an error; URL buttons work at any time, so a gate can be opened without talking.
+- **Which DTMF mode?** Use the one your door station expects. `dtmf:` only works if the caller offers `telephone-event` in its SDP; if not, the button fails and you need `info:`.
+- Digits are `0-9`, `*`, `#` and `A-D`, up to 16. A URL counts as done on any 2xx answer within 5 s.
+- The button shows a check mark when the action worked and an error when it didn't.
+
+Tested with an Alphago ALP-600 (SIP INFO) on a FRITZ!Box.
 
 ## 🔒 Privacy and security
 
