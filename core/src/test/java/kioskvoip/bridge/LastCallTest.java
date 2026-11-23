@@ -74,4 +74,17 @@ class LastCallTest {
         log.onPage("G", "ringing", 180, "G722");
         assertTrue(log.onCall("G", "ended").contains("missed · G.722 · "));
     }
+
+    @Test
+    void outgoingEntries() {
+        String t = time();
+        assertNull(log.onOutgoing("Reception (5001)", "ringing", ""));
+        assertEquals("outgoing · Reception (5001) · answered · G.722 · " + t, log.onOutgoing("Reception (5001)", "answered", "G722"));
+        assertNull(log.onOutgoing("Reception (5001)", "ended", "bye"), "an answered call's end is not a new entry");
+        assertEquals("outgoing · Reception (5001) · busy · " + t, log.onOutgoing("Reception (5001)", "busy", "486 Busy Here"));
+        assertEquals("outgoing · R · no answer · " + t, log.onOutgoing("R", "no answer", "408 No answer"));
+        assertEquals("outgoing · R · failed: 404 Not Found · " + t, log.onOutgoing("R", "failed", "404 Not Found"));
+        assertEquals("outgoing · R · cancelled · " + t, log.onOutgoing("R", "cancelled", ""));
+        assertNull(log.onOutgoing("R", "ended", ""), "an unanswered end is already recorded");
+    }
 }

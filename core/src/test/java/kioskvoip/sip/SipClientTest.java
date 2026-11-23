@@ -364,4 +364,181 @@ class SipClientTest {
             }
         }
     }
+
+    // ---- outgoing calls ----
+
+    private final BlockingQueue<String> outEvents = new LinkedBlockingQueue<>();
+    private final AtomicInteger outSamples = new AtomicInteger();
+
+    private final SipClient.OutgoingHandler outHandler = new SipClient.OutgoingHandler() {
+        public void onRinging() { outEvents.add("ringing"); }
+        public void onAnswered(String codec) { outEvents.add("answered " + codec); }
+        public void onFailed(int code, String reason) { outEvents.add("failed " + code + " " + reason); }
+        public void onEnded(String reason, long packets, long dropped) { outEvents.add("ended " + reason); }
+    };
+
+    private SipMessage request(String method) throws Exception {
+        while (true) {
+            SipMessage m = receive();
+            if (m.isRequest() && method.equals(m.method())) return m;
+        }
+    }
+
+    private String okWithSdp(SipMessage req, String codecs) {
+        String sdp = "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio "
+            + pbxRtp.getLocalPort() + " RTP/AVP " + codecs + "\r\n";
+        String head = reply(req, "200 OK", "Contact: <sip:5001@127.0.0.1:" + pbx.getLocalPort() + ">\r\nContent-Type: application/sdp\r\n");
+        return head.replace("Content-Length: 0\r\n\r\n", "Content-Length: " + sdp.length() + "\r\n\r\n" + sdp);
+    }
+
+    /** Places the call and takes it through the 401 challenge; returns the authenticated INVITE. */
+    private SipMessage callThroughChallenge(String number) throws Exception {
+        assertNull(client.placeCall(number, outHandler, pcm -> outSamples.addAndGet(pcm.length)));
+        SipMessage first = request("INVITE");
+        assertEquals("sip:" + number + "@127.0.0.1", first.startLine.split(" ")[1]);
+        assertNull(first.header("authorization"));
+        assertTrue(first.body.contains("RTP/AVP 9 0 8"), first.body);
+        send(reply(first, "100 Trying", ""));
+        send(reply(first, "401 Unauthorized",
+            "WWW-Authenticate: Digest realm=\"" + REALM + "\", nonce=\"" + NONCE + "\", algorithm=MD5, qop=\"auth\"\r\n"));
+        SipMessage ack = request("ACK");
+        assertEquals("1 ACK", ack.header("cseq"), "ACK for the 401 keeps the INVITE's CSeq");
+        assertTrue(ack.header("to").contains("tag=pbx"));
+        SipMessage second = request("INVITE");
+        assertEquals(first.header("call-id"), second.header("call-id"));
+        assertEquals("2 INVITE", second.header("cseq"));
+        Map<String, String> auth = SipDigest.parseParams(second.header("authorization"));
+        assertEquals(SipDigest.response("1001", REALM, PASSWORD, "INVITE", "sip:" + number + "@127.0.0.1", NONCE, "auth",
+            auth.get("nc"), auth.get("cnonce")), auth.get("response"));
+        return second;
+    }
+
+    @Test
+    void outgoingCallRingsAnswersCarriesAudioAndHangsUp() throws Exception {
+        SipMessage invite = callThroughChallenge("5001");
+        send(reply(invite, "180 Ringing", ""));
+        assertEquals("ringing", outEvents.poll(3, TimeUnit.SECONDS));
+        send(okWithSdp(invite, "9"));
+        assertEquals("answered G722", outEvents.poll(3, TimeUnit.SECONDS));
+        SipMessage ack = request("ACK");
+        assertEquals("2 ACK", ack.header("cseq"));
+        assertEquals("sip:5001@127.0.0.1:" + pbx.getLocalPort(), ack.startLine.split(" ")[1], "ACK goes to the Contact");
+
+        // Our RTP leg starts at once (silence), and the PBX's audio reaches the sink.
+        pbxRtp.setSoTimeout(1000);
+        DatagramPacket packet = new DatagramPacket(new byte[512], 512);
+        pbxRtp.receive(packet);
+        assertEquals(9, packet.getData()[1] & 0x7f, "G.722 payload type");
+        assertEquals(12 + 160, packet.getLength());
+        int ourPort = Sdp.parseOffer(invite.body, new int[] {Sdp.G722}).port;
+        byte[] rtp = new byte[12 + 160];
+        rtp[0] = (byte) 0x80;
+        rtp[1] = 9;
+        for (int i = 0; i < 4; i++) {
+            rtp[3] = (byte) i;
+            pbxRtp.send(new DatagramPacket(rtp, rtp.length, new InetSocketAddress(LO, ourPort)));
+        }
+        long deadline = System.currentTimeMillis() + 3000;
+        while (outSamples.get() < 4 * 320 && System.currentTimeMillis() < deadline) Thread.sleep(10);
+        assertEquals(4 * 320, outSamples.get());
+
+        assertTrue(client.hangup());
+        SipMessage bye = request("BYE");
+        assertEquals("sip:5001@127.0.0.1:" + pbx.getLocalPort(), bye.startLine.split(" ")[1]);
+        assertEquals(invite.header("call-id"), bye.header("call-id"));
+        assertTrue(bye.header("to").contains("tag=pbx"));
+        assertTrue(bye.header("from").contains(";tag="));
+        assertEquals("ended Hung up locally", outEvents.poll(3, TimeUnit.SECONDS));
+        assertFalse(client.isCalling());
+    }
+
+    @Test
+    void outgoingCallEndedByRemoteBye() throws Exception {
+        SipMessage invite = callThroughChallenge("5001");
+        send(okWithSdp(invite, "0"));
+        assertEquals("answered PCMU", outEvents.poll(3, TimeUnit.SECONDS));
+        request("ACK");
+        String from = invite.header("from");
+        send("BYE sip:1001@127.0.0.1 SIP/2.0\r\nVia: SIP/2.0/UDP 127.0.0.1:" + pbx.getLocalPort() + ";branch=z9hG4bKrb\r\n"
+            + "From: <sip:5001@127.0.0.1>;tag=pbx\r\nTo: " + from + "\r\nCall-ID: " + invite.header("call-id")
+            + "\r\nCSeq: 1 BYE\r\nContent-Length: 0\r\n\r\n");
+        SipMessage byeOk = finalResponse();
+        assertEquals("BYE", byeOk.cseqMethod());
+        assertEquals(200, byeOk.status());
+        assertEquals("ended Remote party ended the call", outEvents.poll(3, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void outgoingBusyIsAckedAndReported() throws Exception {
+        SipMessage invite = callThroughChallenge("5001");
+        send(reply(invite, "486 Busy Here", ""));
+        assertEquals("failed 486 Busy Here", outEvents.poll(3, TimeUnit.SECONDS));
+        SipMessage ack = request("ACK");
+        assertEquals("2 ACK", ack.header("cseq"));
+        assertFalse(client.isCalling());
+    }
+
+    @Test
+    void outgoingCancelWhileRinging() throws Exception {
+        SipMessage invite = callThroughChallenge("5001");
+        send(reply(invite, "180 Ringing", ""));
+        assertEquals("ringing", outEvents.poll(3, TimeUnit.SECONDS));
+        assertTrue(client.cancelCall());
+        SipMessage cancel = request("CANCEL");
+        assertEquals("2 CANCEL", cancel.header("cseq"));
+        assertEquals(invite.header("via"), cancel.header("via"), "CANCEL reuses the INVITE's branch");
+        send(reply(cancel, "200 OK", ""));
+        send(reply(invite, "487 Request Terminated", ""));
+        assertEquals("failed 487 Cancelled", outEvents.poll(3, TimeUnit.SECONDS));
+        assertEquals("2 ACK", request("ACK").header("cseq"));
+        assertFalse(client.cancelCall());
+    }
+
+    @Test
+    void outgoingRingTimeoutCancelsAndReportsNoAnswer() throws Exception {
+        client.setRingTimeoutMs(300);
+        SipMessage invite = callThroughChallenge("5001");
+        send(reply(invite, "180 Ringing", ""));
+        assertEquals("ringing", outEvents.poll(3, TimeUnit.SECONDS));
+        SipMessage cancel = request("CANCEL");
+        send(reply(cancel, "200 OK", ""));
+        send(reply(invite, "487 Request Terminated", ""));
+        assertEquals("failed 408 No answer", outEvents.poll(3, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void outgoingAnswerCrossingCancelIsHungUp() throws Exception {
+        SipMessage invite = callThroughChallenge("5001");
+        send(reply(invite, "180 Ringing", ""));
+        assertEquals("ringing", outEvents.poll(3, TimeUnit.SECONDS));
+        assertTrue(client.cancelCall());
+        request("CANCEL");
+        send(okWithSdp(invite, "0")); // the far end answered just before our CANCEL arrived
+        assertEquals("failed 487 Cancelled", outEvents.poll(3, TimeUnit.SECONDS));
+        request("ACK");
+        assertEquals("sip:5001@127.0.0.1:" + pbx.getLocalPort(), request("BYE").startLine.split(" ")[1]);
+    }
+
+    @Test
+    void placeCallRefusesWhileBusyOrForBadNumbers() throws Exception {
+        assertEquals("Invalid number", client.placeCall("50 01", outHandler, pcm -> { }));
+        assertEquals("Invalid number", client.placeCall("", outHandler, pcm -> { }));
+        assertNull(client.placeCall("5001", outHandler, pcm -> { }));
+        assertEquals("Busy", client.placeCall("5002", outHandler, pcm -> { }));
+        // An incoming INVITE during our call gets 486 too.
+        send(invite("x1", "0"));
+        assertEquals(486, finalResponse().status());
+    }
+
+    @Test
+    void retransmittedOkIsAckedAgain() throws Exception {
+        SipMessage invite = callThroughChallenge("5001");
+        String ok = okWithSdp(invite, "0");
+        send(ok);
+        assertEquals("answered PCMU", outEvents.poll(3, TimeUnit.SECONDS));
+        request("ACK");
+        send(ok);
+        assertEquals("2 ACK", request("ACK").header("cseq"));
+        assertNull(outEvents.poll(200, TimeUnit.MILLISECONDS), "no second answered event");
+    }
 }

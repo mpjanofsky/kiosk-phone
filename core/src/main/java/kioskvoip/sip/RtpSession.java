@@ -46,6 +46,15 @@ public final class RtpSession implements Closeable {
     }
 
     public RtpSession(InetAddress local, InetSocketAddress remote, int payload, int eventPayload, Sink sink) throws SocketException {
+        this(local, 0, remote, payload, eventPayload, sink);
+    }
+
+    public RtpSession(InetAddress local, int localPort, InetSocketAddress remote, int payload, Sink sink) throws SocketException {
+        this(local, localPort, remote, payload, -1, sink);
+    }
+
+    /** Binds {@code localPort} (0 = any), for outgoing calls whose SDP offer named the port before the far end answered. */
+    public RtpSession(InetAddress local, int localPort, InetSocketAddress remote, int payload, int eventPayload, Sink sink) throws SocketException {
         if (payload != Sdp.PCMU && payload != Sdp.PCMA && payload != Sdp.G722) {
             throw new IllegalArgumentException("Unsupported payload " + payload);
         }
@@ -54,7 +63,7 @@ public final class RtpSession implements Closeable {
         this.payload = payload;
         this.eventPayload = eventPayload;
         this.sink = sink;
-        socket = new DatagramSocket(new InetSocketAddress(local, 0));
+        socket = new DatagramSocket(new InetSocketAddress(local, localPort));
         socket.setSoTimeout(200);
     }
 

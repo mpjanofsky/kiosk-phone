@@ -88,6 +88,26 @@ public final class Sdp {
         throw new IllegalArgumentException("No common codec in offer " + String.join(" ", formats));
     }
 
+    /** An offer listing {@code payloads} in preference order, for outgoing calls. */
+    public static String offer(InetAddress local, int port, int[] payloads, long sessionId) {
+        String ip = local.getHostAddress();
+        StringBuilder formats = new StringBuilder(), maps = new StringBuilder();
+        for (int payload : payloads) {
+            formats.append(' ').append(payload);
+            // G.722 is clocked at 8000 in SDP although it samples at 16 kHz (RFC 3551).
+            maps.append("a=rtpmap:").append(payload).append(' ').append(codecName(payload)).append("/8000\r\n");
+        }
+        return "v=0\r\n"
+            + "o=- " + sessionId + " 1 IN IP4 " + ip + "\r\n"
+            + "s=kiosk-voip\r\n"
+            + "c=IN IP4 " + ip + "\r\n"
+            + "t=0 0\r\n"
+            + "m=audio " + port + " RTP/AVP" + formats + "\r\n"
+            + maps
+            + "a=ptime:20\r\n"
+            + "a=sendrecv\r\n";
+    }
+
     public static String answer(InetAddress local, int port, int payload, long sessionId) {
         return answer(local, port, payload, -1, sessionId);
     }

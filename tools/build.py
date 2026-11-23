@@ -34,7 +34,8 @@ sdk_root = Path(os.environ.get('ANDROID_HOME', os.environ.get('ANDROID_SDK_ROOT'
 java_root = os.environ.get('JAVA_HOME')
 def java_tool(name):
     return str(Path(java_root) / 'bin' / name) if java_root else name
-build_tools = sorted((sdk_root / 'build-tools').glob('*/d8'), key=lambda p: tuple(int(v) for v in p.parent.name.split('.') if v.isdigit()))
+# Windows ships d8 as d8.bat.
+build_tools = sorted([*(sdk_root / 'build-tools').glob('*/d8'), *(sdk_root / 'build-tools').glob('*/d8.bat')], key=lambda p: tuple(int(v) for v in p.parent.name.split('.') if v.isdigit()))
 if not build_tools:
     raise SystemExit('Set ANDROID_HOME to an Android SDK with build-tools installed.')
 try:

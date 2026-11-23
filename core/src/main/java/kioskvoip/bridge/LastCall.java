@@ -16,6 +16,7 @@ public final class LastCall {
     private final LongSupplier clock;
     private boolean answered;
     private String codec = "";
+    private boolean outAnswered;
 
     public LastCall() { this(System::currentTimeMillis); }
 
@@ -79,11 +80,38 @@ public final class LastCall {
         }
     }
 
+    /**
+     * An entry for a call placed from the kiosk, or null while it is still going. {@code state} is what
+     * {@link OutboundBridge.Events#onOutgoing} reports; for {@code answered} {@code detail} is the codec name, for
+     * {@code failed} it is the SIP status and reason (kept short; the host log has the rest).
+     */
+    public synchronized String onOutgoing(String who, String state, String detail) {
+        switch (state) {
+            case "answered":
+                outAnswered = true;
+                return entry("outgoing", who, "answered", codecLabel(detail));
+            case "busy": case "no answer": case "declined":
+                return entry("outgoing", who, state, "");
+            case "failed":
+                return entry("outgoing", who, "failed: " + (detail == null ? "call setup error" : detail), "");
+            case "cancelled":
+            case "ended":
+                if (outAnswered) { outAnswered = false; return null; }
+                return "cancelled".equals(state) ? entry("outgoing", who, "cancelled", "") : null;
+            default:
+                return null;
+        }
+    }
+
     private String entry(String caller, String result) {
+        return entry("incoming", caller, result, codec);
+    }
+
+    private String entry(String direction, String caller, String result, String codec) {
         String who = caller == null || caller.isEmpty() ? "unknown" : caller;
         if (who.length() > WHO_MAX) who = who.substring(0, WHO_MAX - 1) + "…";
         String time = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date(clock.getAsLong()));
         String used = codec.isEmpty() ? "" : codec + " · ";
-        return "incoming · " + who + " · " + result + " · " + used + time;
+        return direction + " · " + who + " · " + result + " · " + used + time;
     }
 }

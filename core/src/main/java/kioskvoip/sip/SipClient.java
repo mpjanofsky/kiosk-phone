@@ -37,6 +37,18 @@ public final class SipClient {
         void onCancelled(String reason);
     }
 
+    /** Progress of a call we placed with {@link SipClient#placeCall}. Called on the SIP thread, off the internal lock. */
+    public interface OutgoingHandler {
+        /** The far end is ringing (180 or 183); called at most once. */
+        void onRinging();
+        /** Answered (200 OK, ACK sent); media flows into the sink given to placeCall. */
+        void onAnswered(String codec);
+        /** No answer: a final 3xx-6xx status, or 408 (no response / ring timeout) or 487 (we cancelled). */
+        void onFailed(int code, String reason);
+        /** An answered call ended (either side hung up). */
+        void onEnded(String reason, long packets, long dropped);
+    }
+
     /** What to do with an INVITE: answer into a sink, ring until decided, or reject with a SIP status. */
     public static final class Answer {
         final RtpSession.Sink sink;
@@ -122,10 +134,41 @@ public final class SipClient {
         long okSentAt, nextOkAt, okInterval = T1_MS;
         /** CSeq of our own in-dialog requests (INFO, BYE); our CSeq space is independent of the caller's. */
         int localCseq;
+        // Outgoing dialogs only: who to tell, and what in-dialog requests (BYE, re-ACK) need.
+        OutgoingHandler outHandler;
+        String remoteTarget, localFrom, remoteTo;
+        int payload = -1;
+        byte[] ack;
 
         Call(SipMessage invite, String toTag, InetSocketAddress source, byte[] ok, RtpSession rtp, String caller) {
             this.invite = invite; this.toTag = toTag; this.source = source; this.ok = ok; this.rtp = rtp; this.caller = caller;
             this.localCseq = invite.cseqNumber();
+        }
+    }
+
+    /** An INVITE we sent and have no final answer for. */
+    private static final class Outgoing {
+        final String number, uri, callId, fromTag;
+        final int rtpPort;
+        final String offerSdp;
+        final RtpSession.Sink sink;
+        final OutgoingHandler handler;
+        final long startedAt = System.currentTimeMillis();
+        int cseq = 1;
+        String branch;
+        byte[] invite;
+        boolean provisional, ringingNotified, authed;
+        long retransmitAt, retransmitInterval = T1_MS;
+        // Set once we send CANCEL: what to report when the INVITE finally ends.
+        boolean cancelling;
+        int cancelCode;
+        String cancelReason;
+        long cancelDeadline;
+
+        Outgoing(String number, String uri, String callId, String fromTag, int rtpPort, String offerSdp,
+                 RtpSession.Sink sink, OutgoingHandler handler) {
+            this.number = number; this.uri = uri; this.callId = callId; this.fromTag = fromTag; this.rtpPort = rtpPort;
+            this.offerSdp = offerSdp; this.sink = sink; this.handler = handler;
         }
     }
 
@@ -155,8 +198,8 @@ public final class SipClient {
     private Thread thread;
 
     // Touched by the network thread only.
-    private InetAddress serverAddress;
-    private String localIp;
+    private volatile InetAddress serverAddress;
+    private volatile String localIp;
     private int cseq;
     private int lastRegisterCseq = -1;
     private boolean lastRegisterHadAuth;
@@ -171,6 +214,7 @@ public final class SipClient {
     private String lastDetail = "";
     private Call call;
     private Ringing ringing;
+    private Outgoing outgoing;
     private long ringTimeoutMs = RING_TIMEOUT_MS;
     private String lastFinalCallId;
     private byte[] lastFinalResponse;
@@ -197,6 +241,7 @@ public final class SipClient {
             if (call != null) call.rtp.close();
             call = null;
             ringing = null;
+            outgoing = null;
         }
         DatagramSocket current = socket;
         if (current != null) current.close();
@@ -300,6 +345,7 @@ public final class SipClient {
                 }
                 retransmitOk(now);
                 expireRinging(now);
+                serviceOutgoing(now);
                 receiveOnce();
             } catch (IOException | RuntimeException error) {
                 if (!running) return;
@@ -424,6 +470,10 @@ public final class SipClient {
     }
 
     private void handleResponse(SipMessage message) throws IOException {
+        if ("INVITE".equals(message.cseqMethod())) {
+            handleInviteResponse(message);
+            return;
+        }
         if (!"REGISTER".equals(message.cseqMethod()) || message.cseqNumber() != lastRegisterCseq) return;
         awaitingRegister = false;
         unanswered = 0;
@@ -440,49 +490,65 @@ public final class SipClient {
                 failRegistration("Registration rejected; check the username or password");
                 return;
             }
-            String challenge = message.header(code == 401 ? "www-authenticate" : "proxy-authenticate"); // leak-ok: header names
-            if (challenge == null) {
-                failRegistration("Server requires authentication but sent no challenge");
+            Digest digest = digestFor(message, code, "REGISTER", "sip:" + config.server);
+            if (digest.error != null) {
+                failRegistration(digest.error);
                 return;
             }
-            Map<String, String> params = SipDigest.parseParams(challenge);
-            String algorithm = params.get("algorithm");
-            if (algorithm != null && !algorithm.equalsIgnoreCase("MD5")) {
-                failRegistration("Digest algorithm " + algorithm + " is not supported (MD5 only)");
-                return;
-            }
-            String qop = null;
-            String offered = params.get("qop");
-            if (offered != null) {
-                for (String option : offered.split(",")) if (option.trim().equalsIgnoreCase("auth")) qop = "auth";
-                if (qop == null) {
-                    failRegistration("qop \"" + offered + "\" is not supported");
-                    return;
-                }
-            }
-            String realm = params.get("realm");
-            String nonce = params.get("nonce");
-            if (realm == null || nonce == null) {
-                failRegistration("Challenge is missing realm or nonce");
-                return;
-            }
-            String user = config.authUser.isEmpty() ? config.user : config.authUser;
-            String uri = "sip:" + config.server;
-            String cnonce = hex(8);
-            String nc = "00000001";
-            StringBuilder value = new StringBuilder("Digest username=\"").append(user)
-                .append("\", realm=\"").append(realm)
-                .append("\", nonce=\"").append(nonce)
-                .append("\", uri=\"").append(uri)
-                .append("\", response=\"")
-                .append(SipDigest.response(user, realm, config.password, "REGISTER", uri, nonce, qop, nc, cnonce))
-                .append("\", algorithm=MD5");
-            if (qop != null) value.append(", qop=").append(qop).append(", nc=").append(nc).append(", cnonce=\"").append(cnonce).append('"');
-            if (params.get("opaque") != null) value.append(", opaque=\"").append(params.get("opaque")).append('"');
-            sendRegister(code == 401 ? "Authorization" : "Proxy-Authorization", value.toString()); // leak-ok: header names
+            sendRegister(digest.header, digest.value);
             return;
         }
         failRegistration("Registration failed: " + code + " " + message.reason());
+    }
+
+    /** A digest answer to a 401/407 challenge, or an {@code error} text when it cannot be answered. */
+    private static final class Digest {
+        String header, value, error;
+    }
+
+    private Digest digestFor(SipMessage message, int code, String method, String uri) {
+        Digest out = new Digest();
+        String challenge = message.header(code == 401 ? "www-authenticate" : "proxy-authenticate"); // leak-ok: header names
+        if (challenge == null) {
+            out.error = "Server requires authentication but sent no challenge";
+            return out;
+        }
+        Map<String, String> params = SipDigest.parseParams(challenge);
+        String algorithm = params.get("algorithm");
+        if (algorithm != null && !algorithm.equalsIgnoreCase("MD5")) {
+            out.error = "Digest algorithm " + algorithm + " is not supported (MD5 only)";
+            return out;
+        }
+        String qop = null;
+        String offered = params.get("qop");
+        if (offered != null) {
+            for (String option : offered.split(",")) if (option.trim().equalsIgnoreCase("auth")) qop = "auth";
+            if (qop == null) {
+                out.error = "qop \"" + offered + "\" is not supported";
+                return out;
+            }
+        }
+        String realm = params.get("realm");
+        String nonce = params.get("nonce");
+        if (realm == null || nonce == null) {
+            out.error = "Challenge is missing realm or nonce";
+            return out;
+        }
+        String user = config.authUser.isEmpty() ? config.user : config.authUser;
+        String cnonce = hex(8);
+        String nc = "00000001";
+        StringBuilder value = new StringBuilder("Digest username=\"").append(user)
+            .append("\", realm=\"").append(realm)
+            .append("\", nonce=\"").append(nonce)
+            .append("\", uri=\"").append(uri)
+            .append("\", response=\"")
+            .append(SipDigest.response(user, realm, config.password, method, uri, nonce, qop, nc, cnonce))
+            .append("\", algorithm=MD5");
+        if (qop != null) value.append(", qop=").append(qop).append(", nc=").append(nc).append(", cnonce=\"").append(cnonce).append('"');
+        if (params.get("opaque") != null) value.append(", opaque=\"").append(params.get("opaque")).append('"');
+        out.header = code == 401 ? "Authorization" : "Proxy-Authorization"; // leak-ok: header names
+        out.value = value.toString();
+        return out;
     }
 
     private int registrationExpires(SipMessage message) {
@@ -609,7 +675,7 @@ public final class SipClient {
                 sendQuiet(lastFinalResponse, lastFinalTarget);
                 return;
             }
-            busy = call != null || ringing != null;
+            busy = call != null || ringing != null || outgoing != null;
             if (!busy) sendQuiet(response(message, 100, "Trying", null, ""), from);
             else reject(message, from, 486, "Busy Here");
         }
@@ -704,7 +770,276 @@ public final class SipClient {
     }
 
     private void notifyEnded(String reason, Call ended) {
-        try { listener.onCallEnded(reason, ended.rtp.packets(), ended.rtp.dropped()); } catch (RuntimeException ignored) { }
+        try {
+            if (ended.outHandler != null) ended.outHandler.onEnded(reason, ended.rtp.packets(), ended.rtp.dropped());
+            else listener.onCallEnded(reason, ended.rtp.packets(), ended.rtp.dropped());
+        } catch (RuntimeException ignored) { }
+    }
+
+    // ---- outgoing calls ----
+
+    /**
+     * Places a call to {@code number} through the PBX. Returns null when the INVITE was sent (progress then arrives on
+     * {@code handler}), else a short reason it was not (busy, not connected, bad number). One call at a time, shared
+     * with incoming calls. {@code sink} receives the far end's audio as 16 kHz PCM once answered.
+     */
+    public String placeCall(String number, OutgoingHandler handler, RtpSession.Sink sink) {
+        if (number == null || !number.matches("[0-9A-Za-z*#+._-]{1,40}")) return "Invalid number";
+        if (config.problem() != null) return config.problem();
+        int port;
+        try (DatagramSocket probe = new DatagramSocket(0, rtpAddressOrThrow())) {
+            port = probe.getLocalPort();
+        } catch (IOException | RuntimeException error) {
+            return "Not connected to the PBX";
+        }
+        synchronized (lock) {
+            if (socket == null || serverAddress == null || localIp == null) return "Not connected to the PBX";
+            if (call != null || ringing != null || outgoing != null) return "Busy";
+            Outgoing o = new Outgoing(number, "sip:" + number + "@" + config.server, hex(8) + "@kiosk-voip", hex(4), port,
+                Sdp.offer(rtpAddress(), port, CODECS, sessionId()), sink, handler);
+            outgoing = o;
+            sendInvite(o, null, null);
+        }
+        return null;
+    }
+
+    /** Cancels an outgoing call that is still ringing (CANCEL). False when there is none; an answered call needs {@link #hangup}. */
+    public boolean cancelCall() {
+        synchronized (lock) {
+            if (outgoing == null || outgoing.cancelling) return false;
+            cancelOutgoing(outgoing, 487, "Cancelled");
+            return true;
+        }
+    }
+
+    /** True while an outgoing INVITE has no final answer. */
+    public boolean isCalling() { synchronized (lock) { return outgoing != null; } }
+
+    private InetAddress rtpAddressOrThrow() {
+        if (localIp == null) throw new IllegalStateException("no local address yet");
+        return rtpAddress();
+    }
+
+    private String fromHeader(Outgoing o) { return "<sip:" + config.user + "@" + config.server + ">;tag=" + o.fromTag; }
+
+    /** Sends (or re-sends after a challenge) the INVITE. Call with lock held. */
+    private void sendInvite(Outgoing o, String authHeader, String authValue) {
+        o.branch = branch();
+        StringBuilder sb = new StringBuilder()
+            .append("INVITE ").append(o.uri).append(" SIP/2.0\r\n")
+            .append("Via: SIP/2.0/UDP ").append(localIp).append(':').append(config.localPort)
+            .append(";branch=").append(o.branch).append(";rport\r\n")
+            .append("Max-Forwards: 70\r\n")
+            .append("From: ").append(fromHeader(o)).append("\r\n")
+            .append("To: <").append(o.uri).append(">\r\n")
+            .append("Call-ID: ").append(o.callId).append("\r\n")
+            .append("CSeq: ").append(o.cseq).append(" INVITE\r\n")
+            .append("Contact: <sip:").append(config.user).append('@').append(localIp).append(':').append(config.localPort).append(">\r\n")
+            .append("Allow: ").append(ALLOW).append("\r\n")
+            .append("User-Agent: ").append(config.userAgent).append("\r\n");
+        if (authValue != null) sb.append(authHeader).append(": ").append(authValue).append("\r\n");
+        sb.append("Content-Type: application/sdp\r\n")
+          .append("Content-Length: ").append(o.offerSdp.getBytes(StandardCharsets.UTF_8).length).append("\r\n\r\n")
+          .append(o.offerSdp);
+        o.invite = sb.toString().getBytes(StandardCharsets.UTF_8);
+        o.provisional = false;
+        o.retransmitInterval = T1_MS;
+        o.retransmitAt = System.currentTimeMillis() + T1_MS;
+        sendQuiet(o.invite, new InetSocketAddress(serverAddress, config.port));
+    }
+
+    /** Sends CANCEL for the pending INVITE and remembers what to report. Call with lock held. */
+    private void cancelOutgoing(Outgoing o, int code, String reason) {
+        o.cancelling = true;
+        o.cancelCode = code;
+        o.cancelReason = reason;
+        o.cancelDeadline = System.currentTimeMillis() + 5_000;
+        String text = "CANCEL " + o.uri + " SIP/2.0\r\n"
+            + "Via: SIP/2.0/UDP " + localIp + ":" + config.localPort + ";branch=" + o.branch + ";rport\r\n"
+            + "Max-Forwards: 70\r\n"
+            + "From: " + fromHeader(o) + "\r\n"
+            + "To: <" + o.uri + ">\r\n"
+            + "Call-ID: " + o.callId + "\r\n"
+            + "CSeq: " + o.cseq + " CANCEL\r\n"
+            + "User-Agent: " + config.userAgent + "\r\n"
+            + "Content-Length: 0\r\n\r\n";
+        sendQuiet(text.getBytes(StandardCharsets.UTF_8), new InetSocketAddress(serverAddress, config.port));
+    }
+
+    /** INVITE retransmission, ring timeout and CANCEL deadline for the outgoing call. */
+    private void serviceOutgoing(long now) {
+        Outgoing failed = null;
+        int code = 408;
+        String reason = "No answer";
+        synchronized (lock) {
+            Outgoing o = outgoing;
+            if (o == null) return;
+            if (o.cancelling) {
+                if (now < o.cancelDeadline) return;
+                failed = o;
+                code = o.cancelCode;
+                reason = o.cancelReason;
+            } else if (!o.provisional) {
+                // RFC 3261 17.1.1.2: resend until a provisional arrives; give up after 64*T1.
+                if (now - o.startedAt >= ANSWER_TIMEOUT_MS) {
+                    failed = o;
+                    reason = "No response from the PBX";
+                } else if (now >= o.retransmitAt) {
+                    sendQuiet(o.invite, new InetSocketAddress(serverAddress, config.port));
+                    o.retransmitInterval = Math.min(o.retransmitInterval * 2, T2_MS);
+                    o.retransmitAt = now + o.retransmitInterval;
+                }
+            } else if (now - o.startedAt >= ringTimeoutMs) {
+                cancelOutgoing(o, 408, "No answer");
+            }
+            if (failed != null) outgoing = null;
+        }
+        if (failed != null) {
+            try { failed.handler.onFailed(code, reason); } catch (RuntimeException ignored) { }
+        }
+    }
+
+    /** A response to an INVITE we sent. Network thread. */
+    private void handleInviteResponse(SipMessage message) {
+        String callId = message.header("call-id");
+        int code = message.status();
+        Outgoing o;
+        Runnable after = null;
+        synchronized (lock) {
+            if (code >= 200 && code < 300 && call != null && call.outHandler != null && callId.equals(call.invite.header("call-id"))) {
+                sendQuiet(call.ack, call.source); // our ACK was lost; the PBX resent 200
+                return;
+            }
+            o = outgoing;
+            if (o == null || !callId.equals(o.callId) || message.cseqNumber() != o.cseq) return;
+            InetSocketAddress server = new InetSocketAddress(serverAddress, config.port);
+            if (code < 200) {
+                o.provisional = true;
+                if (code > 100 && !o.ringingNotified && !o.cancelling) {
+                    o.ringingNotified = true;
+                    after = () -> o.handler.onRinging();
+                }
+            } else if ((code == 401 || code == 407) && !o.authed && !o.cancelling) {
+                Digest digest = digestFor(message, code, "INVITE", o.uri);
+                sendQuiet(ackFor(o, message), server);
+                if (digest.error != null) {
+                    outgoing = null;
+                    String detail = digest.error;
+                    after = () -> o.handler.onFailed(code, detail);
+                } else {
+                    o.authed = true;
+                    o.cseq++;
+                    sendInvite(o, digest.header, digest.value);
+                }
+            } else if (code >= 300) {
+                sendQuiet(ackFor(o, message), server);
+                outgoing = null;
+                boolean cancelled = o.cancelling && code == 487;
+                int reportCode = cancelled ? o.cancelCode : code;
+                String reportReason = cancelled ? o.cancelReason : message.reason();
+                after = () -> o.handler.onFailed(reportCode, reportReason);
+            } else {
+                outgoing = null;
+                after = answered(o, message, server);
+            }
+        }
+        if (after != null) {
+            try { after.run(); } catch (RuntimeException ignored) { }
+        }
+    }
+
+    /** ACK for a final non-2xx response: same branch and CSeq as the INVITE it answers. */
+    private byte[] ackFor(Outgoing o, SipMessage response) {
+        return ("ACK " + o.uri + " SIP/2.0\r\n"
+            + "Via: SIP/2.0/UDP " + localIp + ":" + config.localPort + ";branch=" + o.branch + ";rport\r\n"
+            + "Max-Forwards: 70\r\n"
+            + "From: " + fromHeader(o) + "\r\n"
+            + "To: " + response.header("to") + "\r\n"
+            + "Call-ID: " + o.callId + "\r\n"
+            + "CSeq: " + o.cseq + " ACK\r\n"
+            + "Content-Length: 0\r\n\r\n").getBytes(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Handles the 200 OK to our INVITE: ACK it, open RTP and start the call, or tear it down again when the answer is
+     * unusable or we had already cancelled. Call with lock held; returns what to tell the handler after the lock.
+     */
+    private Runnable answered(Outgoing o, SipMessage ok, InetSocketAddress server) {
+        String target = contactTarget(ok, o.uri);
+        String remoteTo = ok.header("to");
+        String ackText = "ACK " + target + " SIP/2.0\r\n"
+            + "Via: SIP/2.0/UDP " + localIp + ":" + config.localPort + ";branch=" + branch() + ";rport\r\n"
+            + "Max-Forwards: 70\r\n"
+            + "From: " + fromHeader(o) + "\r\n"
+            + "To: " + remoteTo + "\r\n"
+            + "Call-ID: " + o.callId + "\r\n"
+            + "CSeq: " + o.cseq + " ACK\r\n"
+            + "Content-Length: 0\r\n\r\n";
+        byte[] ack = ackText.getBytes(StandardCharsets.UTF_8);
+        sendQuiet(ack, server);
+
+        Sdp.Offer answer = null;
+        String problem = null;
+        try {
+            answer = Sdp.parseOffer(ok.body, CODECS);
+        } catch (Exception error) {
+            problem = "Unusable answer: " + error.getMessage();
+        }
+        RtpSession rtp = null;
+        if (problem == null) {
+            try {
+                rtp = new RtpSession(rtpAddress(), o.rtpPort, new InetSocketAddress(answer.address, answer.port), answer.payload, o.sink);
+            } catch (IOException error) {
+                problem = "Could not open the RTP port: " + error.getMessage();
+            }
+        }
+        SipMessage ours = SipMessage.parse(new String(o.invite, StandardCharsets.UTF_8));
+        Call dialog = new Call(ours, o.fromTag, server, ack, rtp, o.number);
+        dialog.outHandler = o.handler;
+        dialog.remoteTarget = target;
+        dialog.localFrom = fromHeader(o);
+        dialog.remoteTo = remoteTo;
+        dialog.ack = ack;
+        dialog.acked = true;
+        if (problem != null || o.cancelling) {
+            // Nothing to keep: end the dialog straight away (CANCEL lost the race, or we cannot use the media).
+            RtpSession unused = rtp;
+            if (unused != null) unused.close();
+            dialog.outHandler = o.handler;
+            sendQuiet(byeNoMedia(dialog), server);
+            String reason = problem != null ? problem : o.cancelReason;
+            int code = problem != null ? 488 : o.cancelCode;
+            return () -> o.handler.onFailed(code, reason);
+        }
+        dialog.payload = answer.payload;
+        call = dialog;
+        rtp.start();
+        String codec = Sdp.codecName(answer.payload);
+        return () -> o.handler.onAnswered(codec);
+    }
+
+    private byte[] byeNoMedia(Call c) {
+        return ("BYE " + c.remoteTarget + " SIP/2.0\r\n"
+            + "Via: SIP/2.0/UDP " + localIp + ":" + config.localPort + ";branch=" + branch() + ";rport\r\n"
+            + "Max-Forwards: 70\r\n"
+            + "From: " + c.localFrom + "\r\n"
+            + "To: " + c.remoteTo + "\r\n"
+            + "Call-ID: " + c.invite.header("call-id") + "\r\n"
+            + "CSeq: " + (c.invite.cseqNumber() + 1) + " BYE\r\n"
+            + "Content-Length: 0\r\n\r\n").getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** The Contact URI of a response, else the fallback. */
+    private static String contactTarget(SipMessage response, String fallback) {
+        String header = response.header("contact");
+        if (header == null) return fallback;
+        int lt = header.indexOf('<');
+        if (lt >= 0) {
+            int gt = header.indexOf('>', lt);
+            return header.substring(lt + 1, gt < 0 ? header.length() : gt);
+        }
+        int semi = header.indexOf(';');
+        return (semi >= 0 ? header.substring(0, semi) : header).trim();
     }
 
     // ---- message building ----
@@ -718,6 +1053,7 @@ public final class SipClient {
     }
 
     private static int payloadOf(Call call) {
+        if (call.payload >= 0) return call.payload;
         try {
             return Sdp.parseOffer(call.invite.body, CODECS).payload;
         } catch (Exception error) {
@@ -731,11 +1067,12 @@ public final class SipClient {
     private byte[] infoFor(Call c, char digit) {
         String body = "Signal=" + digit + "\r\nDuration=160\r\n";
         byte[] payload = body.getBytes(StandardCharsets.UTF_8);
-        return ("INFO " + contactUri(c.invite) + " SIP/2.0\r\n"
+        boolean ours = c.outHandler != null; // a call we placed: our own From/To/target, not the INVITE's
+        return ("INFO " + (ours ? c.remoteTarget : contactUri(c.invite)) + " SIP/2.0\r\n"
             + "Via: SIP/2.0/UDP " + localIp + ":" + config.localPort + ";branch=" + branch() + ";rport\r\n"
             + "Max-Forwards: 70\r\n"
-            + "From: " + withTag(c.invite.header("to"), c.toTag) + "\r\n"
-            + "To: " + c.invite.header("from") + "\r\n"
+            + "From: " + (ours ? c.localFrom : withTag(c.invite.header("to"), c.toTag)) + "\r\n"
+            + "To: " + (ours ? c.remoteTo : c.invite.header("from")) + "\r\n"
             + "Call-ID: " + c.invite.header("call-id") + "\r\n"
             + "CSeq: " + (++c.localCseq) + " INFO\r\n"
             + "User-Agent: " + config.userAgent + "\r\n"
@@ -744,6 +1081,17 @@ public final class SipClient {
     }
 
     private byte[] byeFor(Call c) {
+        if (c.outHandler != null) {
+            return ("BYE " + c.remoteTarget + " SIP/2.0\r\n"
+                + "Via: SIP/2.0/UDP " + localIp + ":" + config.localPort + ";branch=" + branch() + ";rport\r\n"
+                + "Max-Forwards: 70\r\n"
+                + "From: " + c.localFrom + "\r\n"
+                + "To: " + c.remoteTo + "\r\n"
+                + "Call-ID: " + c.invite.header("call-id") + "\r\n"
+                + "CSeq: " + (++c.localCseq) + " BYE\r\n"
+                + "User-Agent: " + config.userAgent + "\r\n"
+                + "Content-Length: 0\r\n\r\n").getBytes(StandardCharsets.UTF_8);
+        }
         return ("BYE " + contactUri(c.invite) + " SIP/2.0\r\n"
             + "Via: SIP/2.0/UDP " + localIp + ":" + config.localPort + ";branch=" + branch() + ";rport\r\n"
             + "Max-Forwards: 70\r\n"
