@@ -105,6 +105,8 @@ public final class H264 {
 
         boolean isEmpty() { return count == 0; }
 
+        int size() { return data.size(); }
+
         /** Annex B bytes; a key frame without in-band SPS/PPS gets the ones given (from the SDP) in front. */
         byte[] annexB(byte[] spsNal, byte[] ppsNal) {
             byte[] body = data.toByteArray();

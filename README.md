@@ -82,13 +82,13 @@ With Kiosk Satellite 2026.11.24 or newer, the plugin can put up to three buttons
 |---|---|---|
 | `dtmf:<digits>` | Sends the digits as RFC 2833 / RFC 4733 telephone events in the call's audio | `Open gate \| dtmf:1 \| mdi:gate-open` |
 | `info:<digits>` | Sends the digits as SIP INFO (`application/dtmf-relay`), one per digit | `Door \| info:3 \| mdi:door-open` |
-| `url:<http(s) URL>` | POST with an empty body, e.g. a Home Assistant webhook (`post:` works too) | `Light \| url:http://ha.local:8123/api/webhook/porch \| mdi:lightbulb` |
-| `get:<http(s) URL>` | GET request | `Gate \| get:http://192.168.1.20/cgi-bin/relay?on \| mdi:gate` |
+| `url:<http(s) URL>` | POST with an empty body, e.g. a Home Assistant webhook (`post:` works too) | `Light \| url:http://<ha-host>:8123/api/webhook/porch \| mdi:lightbulb` |
+| `get:<http(s) URL>` | GET request | `Gate \| get:http://<door-station>/cgi-bin/relay?on \| mdi:gate` |
 
 - **DTMF needs an answered call.** Before Answer, a DTMF or INFO button shows an error; URL buttons work at any time, so a gate can be opened without talking.
 - **Which DTMF mode?** Use the one your door station expects. `dtmf:` only works if the caller offers `telephone-event` in its SDP; if not, the button fails and you need `info:`.
 - Digits are `0-9`, `*`, `#` and `A-D`, up to 16. A URL counts as done on any 2xx answer within 5 s.
-- **Devices with a login** (e.g. Akuvox `fcgi/OpenDoor`): put the credentials in the URL, `get:http://user:password@192.168.1.20/fcgi/OpenDoor?action=OpenDoor&DoorNum=1`. The plugin answers the device's 401 with Basic or Digest auth (one retry). Button settings are plain text, so anyone who can open the plugin settings sees the password: use a dedicated API user where the device allows it.
+- **Devices with a login** (e.g. Akuvox `fcgi/OpenDoor`): put the credentials in the URL, `get:http://user:password@<door-station>/fcgi/OpenDoor?action=OpenDoor&DoorNum=1`. The plugin answers the device's 401 with Basic or Digest auth (one retry). Button settings are plain text, so anyone who can open the plugin settings sees the password: use a dedicated API user where the device allows it.
 - The button shows a check mark when the action worked and an error when it didn't.
 
 Tested with an Alphago ALP-600 (SIP INFO) on a FRITZ!Box.

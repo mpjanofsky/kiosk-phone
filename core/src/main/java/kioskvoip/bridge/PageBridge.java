@@ -115,12 +115,18 @@ public final class PageBridge implements SipClient.Listener {
                 }
                 return code >= 200 && code < 300 ? null : "HTTP " + code;
             } catch (java.io.IOException | RuntimeException failure) {
-                return failure.getClass().getSimpleName() + ": " + failure.getMessage();
+                return failure.getClass().getSimpleName() + ": " + scrub(failure.getMessage());
             } finally {
                 if (c != null) c.disconnect();
             }
         }
         return "HTTP 401";
+    }
+
+    /** Error text without a URL's user info or query string, which can carry passwords and tokens. */
+    static String scrub(String text) {
+        if (text == null) return null;
+        return text.replaceAll("://[^/@\\s]*@", "://").replaceAll("\\?[^\\s\"')]*", "");
     }
 
     /** WWW-Authenticate lines; header names differ in case between HTTP stacks. */

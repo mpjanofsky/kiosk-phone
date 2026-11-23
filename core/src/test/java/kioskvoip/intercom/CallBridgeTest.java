@@ -213,7 +213,7 @@ class CallBridgeTest {
         java.util.List<String> ran = new java.util.concurrent.CopyOnWriteArrayList<>();
         kioskvoip.bridge.PageBridgeHooks.urlRunner(bridge, b -> { ran.add(b.label + " " + b.target); return b.target.contains("fail") ? "HTTP 500" : null; });
         bridge.setButtons(new kioskvoip.bridge.CallButtons(java.util.Arrays.asList(
-            "Light | url:http://ha.local/api/webhook/light | mdi:lightbulb", "Gate | info:3", "Broken | url:http://ha.local/fail"), "900"));
+            "Light | url:http://ha.example/api/webhook/light | mdi:lightbulb", "Gate | info:3", "Broken | url:http://ha.example/fail"), "900"));
         send(invite("b1", ""));
         assertTrue(line(nextResponse()).startsWith("SIP/2.0 180"));
         assertEquals("ringing", bridgeEvents.poll(3, TimeUnit.SECONDS));
@@ -228,7 +228,7 @@ class CallBridgeTest {
         String gateId = (String) ((java.util.Map<?, ?>) actions.get(1)).get("id");
         String brokenId = (String) ((java.util.Map<?, ?>) actions.get(2)).get("id");
         assertEquals(200, kiosk.tapButton(lightId), "a URL button works while it rings");
-        assertEquals(java.util.List.of("Light http://ha.local/api/webhook/light"), ran);
+        assertEquals(java.util.List.of("Light http://ha.example/api/webhook/light"), ran);
         assertEquals(500, kiosk.tapButton(brokenId), "a failing URL shows the error mark");
         assertEquals(500, kiosk.tapButton(gateId), "DTMF needs an answered call");
         assertEquals(500, kiosk.tapButton("nope"));

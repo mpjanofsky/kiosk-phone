@@ -250,6 +250,10 @@ public final class RtspSource {
                     fuOpen = false;
                 }
             }
+            if (unit.size() > MAX_FRAME_BYTES) { // a camera that never marks the end of a frame must not fill memory
+                unit.reset();
+                broken = true;
+            }
             if (marker && !unit.isEmpty()) {
                 emit(unit, broken);
                 broken = false;

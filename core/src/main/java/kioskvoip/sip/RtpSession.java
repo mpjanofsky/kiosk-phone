@@ -63,6 +63,9 @@ public final class RtpSession implements Closeable {
     /** True when the far end agreed to telephone-event, so {@link #sendDtmf} can work. */
     public boolean canSendDtmf() { return eventPayload >= 0; }
 
+    /** The telephone-event payload type in use, or -1. */
+    public int eventPayload() { return eventPayload; }
+
     /** Queues DTMF digits (0-9, *, #, A-D) to go out as RFC 4733 events in this stream. False when not agreed. */
     public boolean sendDtmf(String digits) {
         if (eventPayload < 0) return false;

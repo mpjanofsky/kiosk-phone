@@ -96,6 +96,14 @@ if icon is not None:
         if size != (256, 256) or len(data) > 256 * 1024:
             fails.append("assets/%s must be a 256 by 256 PNG of at most 256 KB" % icon)
 
+# minAppVersion: the oldest KS release the plugin works on. KS 2026.10.40+ refuses a plugin that needs a newer one;
+# Community Plugins requires it on new submissions and checks it names a published KS release.
+min_app = manifest.get("minAppVersion")
+if min_app is None:
+    warns.append("manifest has no minAppVersion (Community Plugins requires it; set the oldest KS release the plugin works on)")
+elif not isinstance(min_app, str) or not re.fullmatch(r"[0-9]{4}\.(?:[1-9]|1[0-2])\.(?:0|[1-9][0-9]{0,3})", min_app):
+    fails.append("manifest minAppVersion must be a KS release such as 2026.10.40 (got %r)" % (min_app,))
+
 # README: size and the not-affiliated line.
 readme = ROOT / "README.md"
 if readme.exists():

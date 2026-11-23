@@ -303,6 +303,19 @@ class SipClientTest {
         assertTrue(info.body.startsWith("Signal=2"), info.body);
         assertEquals("d1", info.header("call-id"));
         assertTrue(info.header("from").contains("tag="), "from our side of the dialog");
+
+        // A session refresh must not drop telephone-event from our answer.
+        String refresh = inviteSdp("d1", sdp).replace("CSeq: 1 INVITE", "CSeq: 2 INVITE").replace("branch=z9hG4bKd1", "branch=z9hG4bKd1r");
+        send(refresh);
+        SipMessage reOk;
+        do { reOk = receive(); } while (reOk.isRequest() || reOk.cseqNumber() != 2);
+        assertTrue(reOk.body.contains("a=rtpmap:101 telephone-event/8000"), reOk.body);
+
+        // Our BYE continues our own CSeq after the INFO instead of reusing a number.
+        assertTrue(client.hangup());
+        SipMessage bye;
+        do { bye = receive(); } while (!bye.isRequest() || !"BYE".equals(bye.method()));
+        assertTrue(bye.cseqNumber() > info.cseqNumber(), "BYE CSeq " + bye.cseqNumber() + " after INFO " + info.cseqNumber());
     }
 
     @Test

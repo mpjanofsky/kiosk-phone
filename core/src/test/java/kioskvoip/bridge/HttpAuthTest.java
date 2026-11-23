@@ -43,8 +43,8 @@ class HttpAuthTest {
     private static String call(String spec) { return PageBridge.callUrl(CallButtons.parse("b1", spec)); }
 
     @Test void splitsUserInfoFromUrl() {
-        HttpAuth a = HttpAuth.of("http://admin:p%40ss:w@10.0.0.5:8080/fcgi/OpenDoor?action=OpenDoor&DoorNum=1");
-        assertEquals("http://10.0.0.5:8080/fcgi/OpenDoor?action=OpenDoor&DoorNum=1", a.url);
+        HttpAuth a = HttpAuth.of("http://admin:p%40ss:w@192.0.2.5:8080/fcgi/OpenDoor?action=OpenDoor&DoorNum=1");
+        assertEquals("http://192.0.2.5:8080/fcgi/OpenDoor?action=OpenDoor&DoorNum=1", a.url);
         assertEquals("/fcgi/OpenDoor?action=OpenDoor&DoorNum=1", a.uri);
         assertEquals("admin", a.user);
         assertEquals("p@ss:w", a.password);
@@ -88,5 +88,12 @@ class HttpAuthTest {
         String problem = call("Gate | get:http://admin:topsecret@127.0.0.1:1/x");
         assertNotNull(problem);
         assertFalse(problem.contains("topsecret"), problem);
+    }
+
+    @Test void errorTextLosesUserInfoAndQuery() {
+        String scrubbed = PageBridge.scrub("unexpected end of stream on http://admin:topsecret@192.0.2.5/fcgi/OpenDoor?token=abc123 (x)");
+        assertFalse(scrubbed.contains("topsecret"), scrubbed);
+        assertFalse(scrubbed.contains("abc123"), scrubbed);
+        assertTrue(scrubbed.contains("http://192.0.2.5/fcgi/OpenDoor"), scrubbed);
     }
 }

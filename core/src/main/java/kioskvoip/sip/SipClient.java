@@ -572,9 +572,9 @@ public final class SipClient {
                 if (message.cseqNumber() == call.invite.cseqNumber()) {
                     sendQuiet(call.ok, from); // retransmitted INVITE
                 } else {
-                    // re-INVITE (session refresh, media update): keep our side as is.
+                    // re-INVITE (session refresh, media update): keep our side as is, telephone-event included.
                     sendQuiet(response(message, 200, "OK", call.toTag,
-                        Sdp.answer(rtpAddress(), call.rtp.port(), payloadOf(call), sessionId())), from);
+                        Sdp.answer(rtpAddress(), call.rtp.port(), payloadOf(call), call.rtp.eventPayload(), sessionId())), from);
                 }
                 return;
             }
