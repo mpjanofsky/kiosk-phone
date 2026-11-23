@@ -161,6 +161,10 @@ public final class SipClient {
     private int lastRegisterCseq = -1;
     private boolean lastRegisterHadAuth;
     private long nextRegisterAt;
+    /** A REGISTER is out and nothing has answered it yet; {@link #unanswered} counts the ones that never were. */
+    private boolean awaitingRegister;
+    private int unanswered;
+    private volatile long registerRetryMs = RETRY_MS;
 
     // Guarded by lock.
     private boolean registered;
@@ -289,9 +293,10 @@ public final class SipClient {
                 open();
                 long now = System.currentTimeMillis();
                 if (now >= nextRegisterAt) {
+                    if (awaitingRegister) noAnswer();
                     sendRegister(null, null);
                     // Retry if the PBX never answers; a response replaces this deadline.
-                    nextRegisterAt = now + RETRY_MS;
+                    nextRegisterAt = now + registerRetryMs;
                 }
                 retransmitOk(now);
                 expireRinging(now);
@@ -397,6 +402,7 @@ public final class SipClient {
         cseq++;
         lastRegisterCseq = cseq;
         lastRegisterHadAuth = authValue != null;
+        awaitingRegister = true;
         String aor = "sip:" + config.user + "@" + config.server;
         StringBuilder sb = new StringBuilder()
             .append("REGISTER sip:").append(config.server).append(" SIP/2.0\r\n")
@@ -419,6 +425,8 @@ public final class SipClient {
 
     private void handleResponse(SipMessage message) throws IOException {
         if (!"REGISTER".equals(message.cseqMethod()) || message.cseqNumber() != lastRegisterCseq) return;
+        awaitingRegister = false;
+        unanswered = 0;
         int code = message.status();
         if (code < 200) return;
         if (code == 200) {
@@ -494,8 +502,23 @@ public final class SipClient {
         return config.expires;
     }
 
+    /**
+     * The last REGISTER got no response at all: wrong address or port, a firewall, or a PBX that silently ignores
+     * unknown devices. Without this the status would stay at "starting" (issue #7).
+     */
+    private void noAnswer() {
+        unanswered++;
+        String where = config.server + ":" + config.port;
+        listener.log("REGISTER to " + where + ": no answer (" + unanswered + (unanswered == 1 ? " try" : " tries")
+            + "), retrying in " + registerRetryMs / 1000 + " s");
+        report(false, "No answer from " + where + " (check the PBX address and port, and that this phone is set up on the PBX)");
+    }
+
+    /** Test hook: shorten the wait before an unanswered REGISTER is retried. */
+    void setRegisterRetryMs(long millis) { registerRetryMs = millis; }
+
     private void failRegistration(String detail) {
-        nextRegisterAt = System.currentTimeMillis() + RETRY_MS;
+        nextRegisterAt = System.currentTimeMillis() + registerRetryMs;
         report(false, detail);
     }
 

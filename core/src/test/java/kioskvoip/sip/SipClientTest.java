@@ -332,4 +332,36 @@ class SipClientTest {
     void dtmfWithoutCallFails() {
         assertNotNull(client.sendDtmf("1", true));
     }
+
+    @Test
+    void reportsAPbxThatNeverAnswers() throws Exception {
+        BlockingQueue<String> seen = new LinkedBlockingQueue<>();
+        try (DatagramSocket silent = new DatagramSocket(0, LO)) {
+            int port;
+            try (DatagramSocket free = new DatagramSocket(0, LO)) { port = free.getLocalPort(); }
+            SipClient quiet = new SipClient(new SipClient.Config("127.0.0.1", silent.getLocalPort(), "1002", "", PASSWORD, port, 300),
+                new SipClient.Listener() {
+                    public void onRegistration(boolean ok, String detail) { seen.add("reg " + ok + " " + detail); }
+                    public SipClient.Answer onInvite(String caller, String codec) { return null; }
+                    public void onCallStarted(String caller) { }
+                    public void onCallEnded(String reason, long packets, long dropped) { }
+                    public void log(String message) { if (message.startsWith("REGISTER")) seen.add("log " + message); }
+                });
+            quiet.setRegisterRetryMs(300);
+            quiet.start();
+            try {
+                String log = seen.poll(3, TimeUnit.SECONDS);
+                assertNotNull(log, "an unanswered REGISTER is logged");
+                assertTrue(log.startsWith("log REGISTER to 127.0.0.1:" + silent.getLocalPort() + ": no answer (1 try)"), log);
+                String status = seen.poll(3, TimeUnit.SECONDS);
+                assertEquals("reg false No answer from 127.0.0.1:" + silent.getLocalPort()
+                    + " (check the PBX address and port, and that this phone is set up on the PBX)", status);
+                String retry = seen.poll(3, TimeUnit.SECONDS);
+                assertNotNull(retry);
+                assertTrue(retry.contains("no answer (2 tries)"), "each retry is logged: " + retry);
+            } finally {
+                quiet.stop();
+            }
+        }
+    }
 }

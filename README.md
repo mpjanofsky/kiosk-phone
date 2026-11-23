@@ -26,7 +26,7 @@ Kiosk Phone doesn't bypass Kiosk Satellite's intercom settings. Audio goes throu
 | | |
 |---|---|
 | **You need** | A PBX or SIP provider that speaks standard SIP over UDP, one extension per kiosk, and a kiosk running Kiosk Satellite 2026.10.22 or newer with **Intercom** on (with an intercom key), **Accept announcements** on and Remote Admin on |
-| **Tested on** | Echo Show 5 (LineageOS) with FreePBX (Asterisk); G.722, G.711 µ-law and A-law |
+| **Tested on** | Echo Show 5 (LineageOS) with FreePBX (Asterisk); G.722, G.711 µ-law and A-law. Doorbell video and call buttons: NS Panels with a FRITZ!Box, an Alphago ALP-600 and an Akuvox R20K, tested by contributors |
 | **Should work on** | Other kiosks on Android 7.0 or newer, and other PBXs that follow standard SIP; not tried |
 
 The kiosk must be able to reach the PBX on its SIP port (usually 5060). Outgoing calls from the kiosk are planned, not built.
@@ -67,12 +67,15 @@ Set these on each kiosk, in the plugin's row. Every kiosk needs its own extensio
 
 ## 🎥 Doorbell video
 
-When a call comes from a caller listed under **Callers with video**, the plugin opens the camera stream as soon as the INVITE arrives, offers video to the kiosk (`"video": {"camera": true}` in the intercom call) and, if the kiosk takes it, feeds the intercom video socket: one H.264 access unit per message, behind a 9-byte header (flags, width, height, capture time), as Kiosk Satellite's own kiosks do. The last key frame is cached, so the card shows a picture almost at once and the live stream follows from the next key frame. The camera connection lasts exactly as long as the call.
+When a call comes from a caller listed under **Callers with video**, the call card shows the door camera's picture while it rings and after you answer. The picture appears almost at once, and the plugin disconnects from the camera when the call ends. Other calls are unchanged.
 
-- The kiosk needs **Video calls** on in its intercom settings; it does not need a camera of its own.
-- The camera must send **H.264** (Baseline, Main or High; no B-frames recommended). Nothing is transcoded. RTP runs inside the RTSP connection (TCP), Basic or Digest auth.
-- A go2rtc server with `allow_from` must list the kiosk's IP.
-- Video only: the call's audio still comes over SIP.
+- Set **Camera stream** to the camera's RTSP address, for example a go2rtc stream. It's a secret setting, so the password in it is masked.
+- The kiosk needs **Video calls** on in its intercom settings. It doesn't need a camera of its own.
+- The camera must send **H.264** (Baseline, Main or High; avoid B-frames). The plugin doesn't convert video. It connects over RTSP on TCP, with Basic or Digest login.
+- If your go2rtc uses `allow_from`, add the kiosk's IP address to it.
+- Only the picture comes from the camera. The call's sound still comes over SIP.
+
+How it works is in [docs/protocol.md](docs/protocol.md).
 
 ## 🔘 Call buttons
 
@@ -89,14 +92,15 @@ With Kiosk Satellite 2026.11.24 or newer, the plugin can put up to three buttons
 - **Which DTMF mode?** Use the one your door station expects. `dtmf:` only works if the caller offers `telephone-event` in its SDP; if not, the button fails and you need `info:`.
 - Digits are `0-9`, `*`, `#` and `A-D`, up to 16. A URL counts as done on any 2xx answer within 5 s.
 - **Devices with a login** (e.g. Akuvox `fcgi/OpenDoor`): put the credentials in the URL, `get:http://user:password@<door-station>/fcgi/OpenDoor?action=OpenDoor&DoorNum=1`. The plugin answers the device's 401 with Basic or Digest auth (one retry). Button settings are plain text, so anyone who can open the plugin settings sees the password: use a dedicated API user where the device allows it.
+- **Set Callers with buttons when a button opens something.** Left empty, the buttons show on every incoming call.
 - The button shows a check mark when the action worked and an error when it didn't.
 
-Tested with an Alphago ALP-600 (SIP INFO) on a FRITZ!Box.
+Tested with an Alphago ALP-600 (SIP INFO) on a FRITZ!Box, and an Akuvox R20K (DTMF, SIP INFO and a URL).
 
 ## 🔒 Privacy and security
 
-- **Secrets are masked.** The SIP password and the intercom key use Kiosk Satellite's secret setting type (2026.10.22 or newer), so Plugin Manager and Remote Admin hide them and only let you replace them. Use a dedicated extension and keep the admin port on a trusted network.
-- **Nothing leaves your network** except the SIP traffic to your own PBX. The plugin has no analytics and contacts no other service.
+- **Secrets are masked.** The SIP password, the intercom key and the camera stream use Kiosk Satellite's secret setting type (2026.10.22 or newer), so Plugin Manager and Remote Admin hide them and only let you replace them. Call button settings are plain text, so a password in a button URL is visible to anyone who can open the plugin settings. Use a dedicated extension and keep the admin port on a trusted network.
+- **Nothing leaves your network** except the SIP traffic to your own PBX, and the camera and button URLs you set. The plugin has no analytics and contacts no other service.
 - **SIP and audio aren't encrypted** (UDP and RTP). Keep them on your LAN or a VPN.
 - **The plugin runs inside Kiosk Satellite** with its permissions, like every plugin. Review the code before you trust it.
 
@@ -107,6 +111,7 @@ The status line shows in the plugin's row in Plugin Manager, on the kiosk or in 
 | What you see | What to check |
 |---|---|
 | Status says `Not registered` | PBX address, port, extension and password. Is the kiosk allowed to reach the PBX on that port? |
+| Status says `No answer from <address>:<port>` | The PBX never replied. Check **PBX host** and **PBX port**, that the kiosk can reach the PBX, and that the extension exists on the PBX (on a FRITZ!Box, set the kiosk up as an IP phone). |
 | Status says `No intercom key configured` | Fill in **Intercom key** with the key from Kiosk Satellite. |
 | Registered, but pages are silent | Intercom on? **Accept announcements** on? Kiosk not in Do Not Disturb or Lockdown Mode? Is the key right? |
 | The kiosk chimes and shows the page but plays no sound | Try a plain Kiosk Satellite intercom broadcast. If that is silent too, the kiosk's audio is stuck, not the plugin. A reboot fixed it for us. |
