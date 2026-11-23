@@ -28,6 +28,8 @@ public final class Call implements CallbackServer.Handler {
     private final Listener listener;
     private State state = State.RINGING;
     private Broadcast audio;
+    private volatile boolean videoAccepted;
+    private VideoLink video;
 
     Call(IntercomClient client, CallbackServer server, int port, String id, Listener listener) {
         this.client = client;
@@ -40,10 +42,40 @@ public final class Call implements CallbackServer.Handler {
 
     void setPort(int port) { this.port = port; }
 
+    void setVideoAccepted(boolean accepted) { videoAccepted = accepted; }
+
+    /** The kiosk said it shows video on this call. */
+    public boolean videoAccepted() { return videoAccepted; }
+
+    /**
+     * Opens the video socket (caller side, while it rings or once answered) and returns it to be fed frames; null when
+     * the kiosk does not take video or the call is over. {@code lastKey}: a recent key frame to show straight away.
+     */
+    public VideoLink openVideo(kioskvoip.video.RtspSource.Frame lastKey) throws IOException {
+        synchronized (this) {
+            if (!videoAccepted || state == State.DONE) return null;
+            if (video != null && !video.isClosed()) return video;
+        }
+        VideoLink link = new VideoLink(client, port, id);
+        link.open(lastKey);
+        synchronized (this) {
+            if (state == State.DONE) { link.close(); return null; }
+            video = link;
+        }
+        return link;
+    }
+
+    private void closeVideo() {
+        VideoLink link;
+        synchronized (this) { link = video; video = null; }
+        if (link != null) link.close();
+    }
+
     /** Drops the callback registration of a call that never started. */
     void discard() {
         synchronized (this) { state = State.DONE; }
         server.unregister(id);
+        closeVideo();
     }
 
     public String callId() { return id; }
@@ -64,6 +96,7 @@ public final class Call implements CallbackServer.Handler {
             state = State.DONE;
         }
         server.unregister(id);
+        closeVideo();
         client.hangup(port, id, "cancel");
     }
 
@@ -77,6 +110,7 @@ public final class Call implements CallbackServer.Handler {
             current = audio;
         }
         server.unregister(id);
+        closeVideo();
         current.end();
     }
 
@@ -131,6 +165,7 @@ public final class Call implements CallbackServer.Handler {
             state = State.DONE;
         }
         server.unregister(id);
+        closeVideo();
         return true;
     }
 
@@ -140,6 +175,7 @@ public final class Call implements CallbackServer.Handler {
             state = State.DONE;
         }
         server.unregister(id);
+        closeVideo();
         return true;
     }
 }

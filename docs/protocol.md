@@ -70,3 +70,12 @@ KS version tested: 2026.10.17 (Echo Show 5), 2026-10-09. The protocol is not pro
 - A non-KS process that advertises `_kiosk-satellite._tcp` (TXT id, name, version, port, host) and answers `GET /api/intercom/identity` with a matching `key` hash is picked up by the Echo, which polls identity repeatedly.
 - Remote API `POST /api/commands/intercomCall` `{kiosk: "<name>"}` or `{id}` (admin Bearer token from `/api/login`) → `{ok, data:{id, kiosk}}`; the Echo then `POST`s `/api/intercom/call` `{call, kind:"call", from:{id, name, address, port, version}}` with a Bearer token to the peer's port. A second `intercomCall` while one is pending → 400 "already in a call".
 - Remote API `intercomHangup` / `intercomDismiss` returned ok but did not end a broadcast in a quick test with the screen off (no card); tapping Dismiss on the card ended it (BYE to the PBX within ~4 s). `intercomAnswer`/`intercomDecline` are refused remotely; `intercomStatus` shows state/dnd.
+
+## Video in a call (caller side). Verified 2026-11-14, KS 2026.11.20 (NS Panel, no camera), `scripts/ks_video_test.py` and the plugin core.
+Read from Kiosk Satellite's source (`intercom_manager.dart` `_place`/`_connectVideo`, `intercom_video.dart` `IntercomVideoLink`, `IntercomVideo.kt`).
+- Identity carries `"video": true` when the kiosk takes video calls.
+- The call body adds `"video": {"camera": true}`; a kiosk that takes video answers `{"status":"ringing","video":true}`.
+- The caller opens `WS /api/intercom/video/<call>?token=…` (fresh token) as soon as it rings, and sends `{"type":"camera","on":true}`. The kiosk answers with its own camera state (`{"type":"camera","on":false}` on a kiosk without camera).
+- Binary messages: 9-byte big-endian header (u8 flags, bit 0 = key frame carrying SPS/PPS; u16 width; u16 height; u32 capture ms) + one H.264 access unit in Annex B form. The decoder is configured from the SPS/PPS of a key frame.
+- The kiosk acks every frame (`{"type":"ack","n":k}`) and may ask for a key frame (`{"type":"key"}`). Senders stop at 6 unacknowledged frames and drop until the next key frame.
+- The picture shows on the ringing card, before Answer. A 720x576 Main stream at ~12 fps: 220 of 220 frames acked over 20 s; first picture 0.3 s after the call with a cached key frame.
