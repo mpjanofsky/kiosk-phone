@@ -69,6 +69,86 @@ public final class PageBridge implements SipClient.Listener {
      */
     public void setVideo(String url, String callers) { video = new CallVideo.Config(url, callers); }
 
+    private volatile CallButtons buttons = CallButtons.none();
+    private volatile ButtonRunner urlRunner = PageBridge::callUrl;
+
+    /** Buttons on the kiosk's call card for matching callers (KS 2026.11.24+). */
+    public void setButtons(CallButtons buttons) { this.buttons = buttons == null ? CallButtons.none() : buttons; }
+
+    /** Runs a URL button; returns null on success or why it failed. Tests swap it. */
+    interface ButtonRunner { String run(CallButtons.Button button); }
+
+    void setUrlRunner(ButtonRunner runner) { urlRunner = runner; }
+
+    /**
+     * POST (empty body) or GET with 5 s timeouts; any 2xx is success. {@code user:password@} in the URL is answered
+     * to a 401 with Basic or Digest auth (one retry).
+     */
+    static String callUrl(CallButtons.Button button) {
+        HttpAuth auth;
+        try {
+            auth = HttpAuth.of(button.target);
+        } catch (IllegalArgumentException bad) {
+            return bad.getMessage();
+        }
+        String method = button.kind == CallButtons.Kind.POST ? "POST" : "GET";
+        String authorization = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            java.net.HttpURLConnection c = null;
+            try {
+                c = (java.net.HttpURLConnection) new java.net.URL(auth.url).openConnection();
+                c.setConnectTimeout(5000);
+                c.setReadTimeout(5000);
+                c.setInstanceFollowRedirects(false);
+                c.setUseCaches(false);
+                if (authorization != null) c.setRequestProperty("Authorization", authorization);
+                if (method.equals("POST")) {
+                    c.setRequestMethod("POST");
+                    c.setDoOutput(true);
+                    c.getOutputStream().close(); // empty body, Content-Length: 0
+                }
+                int code = c.getResponseCode();
+                if (code == 401 && authorization == null && auth.hasCredentials()) {
+                    authorization = auth.answer(challenges(c.getHeaderFields()), method);
+                    if (authorization != null) continue;
+                    return "HTTP 401 (no supported auth offered)";
+                }
+                return code >= 200 && code < 300 ? null : "HTTP " + code;
+            } catch (java.io.IOException | RuntimeException failure) {
+                return failure.getClass().getSimpleName() + ": " + failure.getMessage();
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }
+        return "HTTP 401";
+    }
+
+    /** WWW-Authenticate lines; header names differ in case between HTTP stacks. */
+    private static java.util.List<String> challenges(java.util.Map<String, java.util.List<String>> headers) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (java.util.Map.Entry<String, java.util.List<String>> e : headers.entrySet()) {
+            if (e.getKey() != null && e.getKey().equalsIgnoreCase("WWW-Authenticate")) out.addAll(e.getValue());
+        }
+        return out;
+    }
+
+    /** One tap on a call-card button during a call from {@code caller}. */
+    boolean runButton(String caller, String id) {
+        CallButtons.Button button = buttons.byId(id);
+        if (button == null) {
+            events.log("button " + id + " from " + caller + ": not configured (any more)");
+            return false;
+        }
+        String problem;
+        switch (button.kind) {
+            case DTMF: problem = attached().sendDtmf(button.target, false); break;
+            case INFO: problem = attached().sendDtmf(button.target, true); break;
+            default: problem = urlRunner.run(button); break;
+        }
+        events.log("button '" + button.label + "' (" + caller + "): " + (problem == null ? "done" : "failed: " + problem));
+        return problem == null;
+    }
+
     /** Tests swap the camera for a fake one. */
     void setVideoSources(java.util.function.Function<String, RtspSource> factory) { videoSources = factory; }
 
@@ -124,8 +204,11 @@ public final class PageBridge implements SipClient.Listener {
                 double gain = micGain;
                 attached().sendAudio(gain == 1.0 ? pcm : applyGain(pcm, gain));
             }
+            @Override public boolean onButton(String id) { return runButton(caller, id); }
         };
-        IntercomClient.Outcome outcome = intercom.call(caller, listener, picture != null);
+        java.util.List<java.util.Map<String, Object>> actions = new java.util.ArrayList<>();
+        for (CallButtons.Button b : buttons.forCaller(caller)) actions.add(b.toJson());
+        IntercomClient.Outcome outcome = intercom.call(caller, listener, picture != null, actions);
         if (!outcome.started()) {
             if (picture != null) picture.stop();
             int code = IntercomClient.BUSY.equals(outcome.status) ? 486 : 480;

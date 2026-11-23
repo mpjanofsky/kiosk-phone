@@ -45,6 +45,8 @@ final class FakeKiosk implements AutoCloseable {
     /** Video frames received (header + Annex B), and the video offer of the last call (null = none). */
     final List<byte[]> videoFrames = new CopyOnWriteArrayList<>();
     volatile Object lastVideoOffer;
+    /** The {@code actions} list of the last call (null = none). */
+    volatile Object lastActions;
     private volatile OutputStream videoOut;
     private final List<String> usedNonces = new CopyOnWriteArrayList<>();
 
@@ -114,6 +116,7 @@ final class FakeKiosk implements AutoCloseable {
                 Map<?, ?> from = (Map<?, ?>) call.get("from");
                 events.add("call " + call.get("kind") + " " + from.get("name"));
                 lastVideoOffer = call.get("video");
+                lastActions = call.get("actions");
                 boolean video = takesVideo && lastVideoOffer instanceof Map;
                 if ("call".equals(call.get("kind"))) {
                     callId = (String) call.get("call");
@@ -172,6 +175,12 @@ final class FakeKiosk implements AutoCloseable {
     int callbackStatus(String action, String bearer) throws IOException {
         return Http.request(callbackHost, callbackPort, "POST", "/api/intercom/call/" + callId, bearer,
             "{\"action\":\"" + action + "\"}", 2000).status;
+    }
+
+    /** A tap on call-card button {@code id}: the HTTP status the caller answers. */
+    int tapButton(String id) throws IOException {
+        return Http.request(callbackHost, callbackPort, "POST", "/api/intercom/call/" + callId,
+            IntercomAuth.token(key, callId, KIOSK_ID), "{\"action\":\"custom\",\"id\":\"" + id + "\"}", 5000).status;
     }
 
     private void callback(String action) throws IOException {

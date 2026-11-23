@@ -120,9 +120,12 @@ public final class SipClient {
         final String caller;
         boolean acked;
         long okSentAt, nextOkAt, okInterval = T1_MS;
+        /** CSeq of our own in-dialog requests (INFO, BYE); our CSeq space is independent of the caller's. */
+        int localCseq;
 
         Call(SipMessage invite, String toTag, InetSocketAddress source, byte[] ok, RtpSession rtp, String caller) {
             this.invite = invite; this.toTag = toTag; this.source = source; this.ok = ok; this.rtp = rtp; this.caller = caller;
+            this.localCseq = invite.cseqNumber();
         }
     }
 
@@ -215,6 +218,32 @@ public final class SipClient {
         }
         notifyEnded("Hung up locally", ended);
         return true;
+    }
+
+    /**
+     * Sends DTMF into the active call: in the RTP stream as RFC 4733 events ({@code info} false; needs telephone-event
+     * in the caller's SDP) or as one SIP INFO per digit with application/dtmf-relay ({@code info} true). Returns null
+     * when sent, otherwise why not.
+     */
+    public String sendDtmf(String digits, boolean info) {
+        Call c;
+        synchronized (lock) { c = call; }
+        if (c == null) return "no answered call";
+        if (!info) {
+            if (!c.rtp.canSendDtmf()) return "the caller did not offer telephone-event (RFC 2833); try SIP INFO";
+            c.rtp.sendDtmf(digits);
+            listener.log(c.caller + ": DTMF " + digits + " (RFC 2833)");
+            return null;
+        }
+        for (char digit : digits.toCharArray()) {
+            synchronized (lock) {
+                if (call != c) return "call ended";
+                sendQuiet(infoFor(c, digit), c.source);
+            }
+            pause(250);
+        }
+        listener.log(c.caller + ": DTMF " + digits + " (SIP INFO)");
+        return null;
     }
 
     /** Sends 16 kHz mic audio to the caller of the active call (ignored when there is none). */
@@ -608,14 +637,14 @@ public final class SipClient {
     private boolean establish(SipMessage message, InetSocketAddress from, Sdp.Offer offer, String toTag, RtpSession.Sink sink, String caller) {
         RtpSession rtp;
         try {
-            rtp = new RtpSession(rtpAddress(), new InetSocketAddress(offer.address, offer.port), offer.payload, sink);
+            rtp = new RtpSession(rtpAddress(), new InetSocketAddress(offer.address, offer.port), offer.payload, offer.event, sink);
         } catch (IOException error) {
             synchronized (lock) { reject(message, from, 500, "Server Internal Error", toTag); }
             listener.log(caller + ": could not open RTP port: " + error.getMessage());
             return false;
         }
         synchronized (lock) {
-            byte[] ok = response(message, 200, "OK", toTag, Sdp.answer(rtpAddress(), rtp.port(), offer.payload, sessionId()));
+            byte[] ok = response(message, 200, "OK", toTag, Sdp.answer(rtpAddress(), rtp.port(), offer.payload, offer.event, sessionId()));
             call = new Call(message, toTag, from, ok, rtp, caller);
             long now = System.currentTimeMillis();
             call.okSentAt = now;
@@ -675,6 +704,22 @@ public final class SipClient {
 
     private long sessionId() { return random.nextInt() & 0x7fffffffL; }
 
+    /** In-dialog INFO with one DTMF digit (application/dtmf-relay, as Asterisk, FRITZ!Box and door stations take it). */
+    private byte[] infoFor(Call c, char digit) {
+        String body = "Signal=" + digit + "\r\nDuration=160\r\n";
+        byte[] payload = body.getBytes(StandardCharsets.UTF_8);
+        return ("INFO " + contactUri(c.invite) + " SIP/2.0\r\n"
+            + "Via: SIP/2.0/UDP " + localIp + ":" + config.localPort + ";branch=" + branch() + ";rport\r\n"
+            + "Max-Forwards: 70\r\n"
+            + "From: " + withTag(c.invite.header("to"), c.toTag) + "\r\n"
+            + "To: " + c.invite.header("from") + "\r\n"
+            + "Call-ID: " + c.invite.header("call-id") + "\r\n"
+            + "CSeq: " + (++c.localCseq) + " INFO\r\n"
+            + "User-Agent: " + config.userAgent + "\r\n"
+            + "Content-Type: application/dtmf-relay\r\n"
+            + "Content-Length: " + payload.length + "\r\n\r\n" + body).getBytes(StandardCharsets.UTF_8);
+    }
+
     private byte[] byeFor(Call c) {
         return ("BYE " + contactUri(c.invite) + " SIP/2.0\r\n"
             + "Via: SIP/2.0/UDP " + localIp + ":" + config.localPort + ";branch=" + branch() + ";rport\r\n"
@@ -682,7 +727,7 @@ public final class SipClient {
             + "From: " + withTag(c.invite.header("to"), c.toTag) + "\r\n"
             + "To: " + c.invite.header("from") + "\r\n"
             + "Call-ID: " + c.invite.header("call-id") + "\r\n"
-            + "CSeq: " + (c.invite.cseqNumber() + 1) + " BYE\r\n"
+            + "CSeq: " + (++c.localCseq) + " BYE\r\n"
             + "User-Agent: " + config.userAgent + "\r\n"
             + "Content-Length: 0\r\n\r\n").getBytes(StandardCharsets.UTF_8);
     }

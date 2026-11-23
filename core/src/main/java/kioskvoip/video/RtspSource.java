@@ -456,7 +456,7 @@ public final class RtspSource {
 
     private static final String B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-    static String base64(byte[] d) {
+    public static String base64(byte[] d) {
         StringBuilder s = new StringBuilder();
         for (int i = 0; i < d.length; i += 3) {
             int n = (d[i] & 0xff) << 16 | (i + 1 < d.length ? (d[i + 1] & 0xff) << 8 : 0) | (i + 2 < d.length ? d[i + 2] & 0xff : 0);
@@ -495,7 +495,7 @@ public final class RtspSource {
         }
     }
 
-    static Map<String, String> params(String header) {
+    public static Map<String, String> params(String header) {
         Map<String, String> out = new LinkedHashMap<>();
         int i = 0, n = header.length();
         while (i < n) {

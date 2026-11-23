@@ -6,7 +6,7 @@
   "apiVersion": 1,
   "minAndroidSdk": 24,
   "entryClass": "kioskvoip.plugin.VoipPlugin",
-  "description": "Turns this kiosk into a SIP phone on your PBX. Calls ring on the screen, and pages and announcements play through Kiosk Satellite's own intercom. Optional: a doorbell camera's picture on the call card.",
+  "description": "Turns this kiosk into a SIP phone on your PBX. Calls ring on the screen, and pages and announcements play through Kiosk Satellite's own intercom. Optional: a doorbell camera's picture and up to 3 buttons (DTMF or a URL) on the call card.",
   "author": "Mike Janofsky",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -101,6 +101,38 @@
       "default": "",
       "group": "Doorbell video",
       "description": "Comma-separated numbers or names (part of the caller ID, e.g. 620). Empty = every call."
+    },
+    {
+      "key": "buttonCallers",
+      "type": "string",
+      "title": "Callers with buttons",
+      "default": "",
+      "group": "Call buttons",
+      "description": "Comma-separated numbers or names (part of the caller ID, e.g. 620). Empty = every call."
+    },
+    {
+      "key": "button1",
+      "type": "string",
+      "title": "Button 1",
+      "default": "",
+      "group": "Call buttons",
+      "description": "Label | action, optionally | mdi:icon. Actions: dtmf:1 (RFC 2833 in the call), info:1 (SIP INFO), url:https://... (POST) or get:https://... (GET); http://user:password@host/... for devices with Basic or Digest login. DTMF works once the call is answered; a URL works while it rings too. Example: Open gate | dtmf:1 | mdi:gate-open. Needs Kiosk Satellite 2026.11.24 or newer."
+    },
+    {
+      "key": "button2",
+      "type": "string",
+      "title": "Button 2",
+      "default": "",
+      "group": "Call buttons",
+      "description": "Same format as Button 1. Empty = no button."
+    },
+    {
+      "key": "button3",
+      "type": "string",
+      "title": "Button 3",
+      "default": "",
+      "group": "Call buttons",
+      "description": "Same format as Button 1. Empty = no button."
     }
   ],
   "groups": [
@@ -119,6 +151,9 @@
     },
     {
       "title": "Doorbell video"
+    },
+    {
+      "title": "Call buttons"
     }
   ]
 }

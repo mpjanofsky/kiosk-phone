@@ -25,6 +25,10 @@ public final class RtpSession implements Closeable {
     private final InetAddress peer;
     private final InetSocketAddress remote;
     private final int payload;
+    /** telephone-event payload type agreed in SDP, or -1: then DTMF cannot go in-band. */
+    private final int eventPayload;
+    /** DTMF digits waiting to be sent as RFC 4733 events. */
+    private final java.util.concurrent.ConcurrentLinkedQueue<Character> dtmf = new java.util.concurrent.ConcurrentLinkedQueue<>();
     private final Sink sink;
     private volatile boolean running;
     private Thread thread, sender;
@@ -38,18 +42,52 @@ public final class RtpSession implements Closeable {
     static final int PACKET_SAMPLES = 320, MIC_CAPACITY = 16_000; // 20 ms per packet; 1 s of mic
 
     public RtpSession(InetAddress local, InetSocketAddress remote, int payload, Sink sink) throws SocketException {
+        this(local, remote, payload, -1, sink);
+    }
+
+    public RtpSession(InetAddress local, InetSocketAddress remote, int payload, int eventPayload, Sink sink) throws SocketException {
         if (payload != Sdp.PCMU && payload != Sdp.PCMA && payload != Sdp.G722) {
             throw new IllegalArgumentException("Unsupported payload " + payload);
         }
         this.remote = remote;
         this.peer = remote.getAddress();
         this.payload = payload;
+        this.eventPayload = eventPayload;
         this.sink = sink;
         socket = new DatagramSocket(new InetSocketAddress(local, 0));
         socket.setSoTimeout(200);
     }
 
     public int port() { return socket.getLocalPort(); }
+
+    /** True when the far end agreed to telephone-event, so {@link #sendDtmf} can work. */
+    public boolean canSendDtmf() { return eventPayload >= 0; }
+
+    /** Queues DTMF digits (0-9, *, #, A-D) to go out as RFC 4733 events in this stream. False when not agreed. */
+    public boolean sendDtmf(String digits) {
+        if (eventPayload < 0) return false;
+        for (char c : digits.toCharArray()) {
+            if (eventCode(c) < 0) throw new IllegalArgumentException("not a DTMF digit: " + c);
+        }
+        for (char c : digits.toCharArray()) dtmf.add(c);
+        return true;
+    }
+
+    static int eventCode(char c) {
+        if (c >= '0' && c <= '9') return c - '0';
+        switch (Character.toUpperCase(c)) {
+            case '*': return 10;
+            case '#': return 11;
+            case 'A': return 12;
+            case 'B': return 13;
+            case 'C': return 14;
+            case 'D': return 15;
+            default: return -1;
+        }
+    }
+
+    /** Packets per digit: 8 of 20 ms (160 ms tone), then 3 end packets; then 4 packets of audio as a gap. */
+    static final int DTMF_TONE_PACKETS = 8, DTMF_END_PACKETS = 3, DTMF_GAP_PACKETS = 4;
     public long packets() { return packets; }
     /** Packets ignored: wrong source, payload type or malformed. */
     public long dropped() { return dropped; }
@@ -109,8 +147,46 @@ public final class RtpSession implements Closeable {
         packet[8] = (byte) (ssrc >>> 24); packet[9] = (byte) (ssrc >>> 16); packet[10] = (byte) (ssrc >>> 8); packet[11] = (byte) ssrc;
         G722.Encoder encoder = payload == Sdp.G722 ? new G722.Encoder() : null;
         short[] samples = new short[PACKET_SAMPLES];
+        byte[] event = new byte[12 + 4];
+        event[0] = (byte) 0x80;
+        System.arraycopy(packet, 8, event, 8, 4);
+        int eventCode = -1, eventStep = 0, eventStart = 0, gap = 0;
         long next = System.nanoTime();
         while (running) {
+            if (eventCode < 0 && gap == 0 && eventPayload >= 0) {
+                Character digit = dtmf.poll();
+                if (digit != null) { eventCode = eventCode(digit); eventStep = 0; eventStart = timestamp; }
+            }
+            if (eventCode >= 0) {
+                // RFC 4733: same timestamp for the whole event, marker on its first packet, duration grows, E bit at the end.
+                boolean end = eventStep >= DTMF_TONE_PACKETS;
+                int duration = Math.min(eventStep + 1, DTMF_TONE_PACKETS) * 160;
+                event[1] = (byte) ((eventStep == 0 ? 0x80 : 0) | eventPayload);
+                event[2] = (byte) (sequence >>> 8); event[3] = (byte) sequence;
+                event[4] = (byte) (eventStart >>> 24); event[5] = (byte) (eventStart >>> 16); event[6] = (byte) (eventStart >>> 8); event[7] = (byte) eventStart;
+                event[12] = (byte) eventCode;
+                event[13] = (byte) ((end ? 0x80 : 0) | 10); // volume -10 dBm0
+                event[14] = (byte) (duration >>> 8); event[15] = (byte) duration;
+                try {
+                    socket.send(new DatagramPacket(event, event.length, remote));
+                } catch (IOException closed) {
+                    return;
+                }
+                sequence = (sequence + 1) & 0xffff;
+                eventStep++;
+                if (eventStep >= DTMF_TONE_PACKETS + DTMF_END_PACKETS) {
+                    eventCode = -1;
+                    gap = DTMF_GAP_PACKETS;
+                    timestamp = eventStart + (DTMF_TONE_PACKETS + DTMF_END_PACKETS) * 160; // keep the clock in step with real time
+                }
+                next += 20_000_000L;
+                long wait = next - System.nanoTime();
+                if (wait > 0) {
+                    try { Thread.sleep(wait / 1_000_000L, (int) (wait % 1_000_000L)); } catch (InterruptedException e) { return; }
+                }
+                continue;
+            }
+            if (gap > 0) gap--;
             boolean live = takeMic(samples);
             if (!live) java.util.Arrays.fill(samples, (short) 0);
             else micPackets++;
