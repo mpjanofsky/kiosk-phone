@@ -22,7 +22,7 @@ class CallButtonsTest {
     }
 
     @Test void urlKinds() {
-        CallButtons b = new CallButtons(Arrays.asList("A | url:https://h/x", "B | get:http://h/y", "C | post:http://h/z"), "");
+        CallButtons b = new CallButtons(Arrays.asList("A | url:https://h/x", "B | get:http://h/y", "C | post:http://h/z"), "620");
         assertEquals(CallButtons.Kind.POST, b.byId("b1").kind);
         assertEquals(CallButtons.Kind.GET, b.byId("b2").kind);
         assertEquals(CallButtons.Kind.POST, b.byId("b3").kind);
@@ -40,5 +40,22 @@ class CallButtonsTest {
         assertEquals(1, b.forCaller("haustür").size());
         assertTrue(b.forCaller("Peter (**611)").isEmpty());
         assertEquals(40, b.byId("b1").label.length());
+    }
+
+    @Test void urlButtonsNeedCallers() {
+        CallButtons b = new CallButtons(Arrays.asList("Gate | get:http://h/open", "Door | info:3"), "");
+        assertNull(b.byId("b1"), "a URL button with no callers set must not exist at all");
+        assertEquals(1, b.forCaller("anyone").size());
+        assertEquals(CallButtons.Kind.INFO, b.forCaller("anyone").get(0).kind);
+        assertEquals(1, b.problems().size());
+        assertTrue(b.problems().get(0).contains("Callers with buttons"));
+        assertNotNull(new CallButtons(Arrays.asList("Gate | get:http://h/open"), "**620").byId("b1"));
+    }
+
+    @Test void exactCallerMatch() {
+        CallButtons b = new CallButtons(Arrays.asList("Gate | dtmf:1"), "**620");
+        assertEquals(1, b.forCaller("ALP (**620)").size());
+        assertTrue(b.forCaller("ALP (**6201)").isEmpty());
+        assertTrue(b.forCaller("Phone (**1620)").isEmpty());
     }
 }

@@ -101,7 +101,7 @@
       "title": "Callers with video",
       "default": "",
       "group": "Doorbell video",
-      "description": "Comma-separated numbers or names (part of the caller ID, e.g. 620). Empty = every call."
+      "description": "Comma-separated numbers or names, matched exactly (e.g. **620 or 620). A * at the end matches the start (0611*), *R20K* matches part of a name. Empty = every call."
     },
     {
       "key": "buttonCallers",
@@ -109,7 +109,7 @@
       "title": "Callers with buttons",
       "default": "",
       "group": "Call buttons",
-      "description": "Comma-separated numbers or names (part of the caller ID, e.g. 620). Empty = every call."
+      "description": "Comma-separated numbers or names, matched exactly (e.g. **620 or 620). A * at the end matches the start (0611*), *R20K* matches part of a name. URL buttons are only shown when this is set. Empty = every call."
     },
     {
       "key": "button1",

@@ -61,8 +61,8 @@ Set these on each kiosk, in the plugin's row. Every kiosk needs its own extensio
 | Kiosk intercom | **KS admin port** | Kiosk Satellite's admin port | `2324` |
 | Kiosk intercom | **Microphone gain** | Boosts the mic for calls, 1 (off) to 30. Some kiosk mics are very quiet. | `8` |
 | Doorbell video | **Camera stream** | `rtsp://user:password@host:554/path` of an H.264 camera, e.g. a go2rtc stream. Empty = off | empty |
-| Doorbell video | **Callers with video** | Comma-separated parts of the caller ID (number or name), e.g. `620`. Empty = every call | empty |
-| Call buttons | **Callers with buttons** | Comma-separated parts of the caller ID, e.g. `620`. Empty = every call | empty |
+| Doorbell video | **Callers with video** | Comma-separated numbers or names, see [Which callers](#which-callers). Empty = every call | empty |
+| Call buttons | **Callers with buttons** | Same format as Callers with video. Empty = every call, but then URL buttons are skipped | empty |
 | Call buttons | **Button 1–3** | `Label \| action \| mdi:icon`, see [Call buttons](#-call-buttons). Empty = no button | empty |
 
 ## 🎥 Doorbell video
@@ -76,6 +76,23 @@ When a call comes from a caller listed under **Callers with video**, the call ca
 - Only the picture comes from the camera. The call's sound still comes over SIP.
 
 How it works is in [docs/protocol.md](docs/protocol.md).
+
+### Which callers
+
+**Callers with video** and **Callers with buttons** take the same list, comma-separated. The plugin compares each entry with the caller's number and name (the name the PBX sends, e.g. `ALP-600 (**620)`), ignoring case.
+
+| Entry | Matches | Doesn't match |
+|---|---|---|
+| `**620` | `**620` | `**6201`, `**1620` |
+| `620` | `620` and `**620` (leading `*` are ignored, for FRITZ!Box internal numbers) | `6200` |
+| `0611*` | numbers starting with `0611` | `0612…` |
+| `*R20K*` | a name containing `R20K` | |
+| `Haustür` | the name `Haustür` | `Haustür hinten` |
+| `*` | every caller | |
+
+A `*` is only read as a wildcard when no entry matches exactly. On a number only a trailing `*` is a wildcard, so a FRITZ!Box number like `**620` never matches more than itself.
+
+Up to 0.8.0 an entry matched any part of the caller ID. Entries that relied on that, such as `62` for `**620`, now need a `*`: `62*`.
 
 ## 🔘 Call buttons
 
@@ -92,7 +109,8 @@ With Kiosk Satellite 2026.11.24 or newer, the plugin can put up to three buttons
 - **Which DTMF mode?** Use the one your door station expects. `dtmf:` only works if the caller offers `telephone-event` in its SDP; if not, the button fails and you need `info:`.
 - Digits are `0-9`, `*`, `#` and `A-D`, up to 16. A URL counts as done on any 2xx answer within 5 s.
 - **Devices with a login** (e.g. Akuvox `fcgi/OpenDoor`): put the credentials in the URL, `get:http://user:password@<door-station>/fcgi/OpenDoor?action=OpenDoor&DoorNum=1`. The plugin answers the device's 401 with Basic or Digest auth (one retry). Button settings are plain text, so anyone who can open the plugin settings sees the password: use a dedicated API user where the device allows it.
-- **Set Callers with buttons when a button opens something.** Left empty, the buttons show on every incoming call.
+- **URL buttons need Callers with buttons.** A `url:` or `get:` button usually opens something, so with **Callers with buttons** left empty the plugin skips it and says so in the log. DTMF and INFO buttons only reach the caller and show on every call.
+- **Use a dedicated API user** on the door station for URL buttons where it allows one, with only the rights the button needs.
 - The button shows a check mark when the action worked and an error when it didn't.
 
 Tested with an Alphago ALP-600 (SIP INFO) on a FRITZ!Box, and an Akuvox R20K (DTMF, SIP INFO and a URL).
