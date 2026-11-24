@@ -38,11 +38,17 @@ public final class CallButtons {
     }
 
     private final List<Button> buttons;
-    private final String[] callers;
+    private final CallerMatch callers;
     private final List<String> problems;
 
-    /** {@code specs}: up to {@link #MAX} button settings (empty ones are skipped); {@code callers} as for video. */
+    /**
+     * {@code specs}: up to {@link #MAX} button settings (empty ones are skipped); {@code callers}: see
+     * {@link CallerMatch}. A {@code url:} or {@code get:} button usually opens something, so it is only kept when
+     * callers are set: with an empty list it would show on every incoming call. It is dropped here and reported in
+     * {@link #problems()}, so it cannot be run at all.
+     */
     public CallButtons(List<String> specs, String callers) {
+        this.callers = new CallerMatch(callers);
         List<Button> parsed = new ArrayList<>();
         List<String> bad = new ArrayList<>();
         int n = 0;
@@ -52,15 +58,18 @@ public final class CallButtons {
             if (spec.isEmpty()) continue;
             if (parsed.size() == MAX) { bad.add("button " + n + ": at most " + MAX + " buttons"); continue; }
             try {
-                parsed.add(parse("b" + n, spec));
+                Button button = parse("b" + n, spec);
+                if ((button.kind == Kind.POST || button.kind == Kind.GET) && this.callers.everyone()) {
+                    bad.add("button " + n + ": URL buttons need Callers with buttons set, skipped");
+                    continue;
+                }
+                parsed.add(button);
             } catch (IllegalArgumentException wrong) {
                 bad.add("button " + n + ": " + wrong.getMessage());
             }
         }
         buttons = Collections.unmodifiableList(parsed);
         problems = Collections.unmodifiableList(bad);
-        String list = callers == null ? "" : callers.trim();
-        this.callers = list.isEmpty() ? new String[0] : list.toLowerCase(Locale.ROOT).split("\\s*,\\s*");
     }
 
     static Button parse(String id, String spec) {
@@ -95,11 +104,8 @@ public final class CallButtons {
 
     /** Buttons for this caller; empty when none are set or the caller does not match. */
     public List<Button> forCaller(String caller) {
-        if (buttons.isEmpty()) return Collections.emptyList();
-        if (callers.length == 0) return buttons;
-        String c = caller == null ? "" : caller.toLowerCase(Locale.ROOT);
-        for (String part : callers) if (!part.isEmpty() && c.contains(part)) return buttons;
-        return Collections.emptyList();
+        if (buttons.isEmpty() || !callers.matches(caller)) return Collections.emptyList();
+        return buttons;
     }
 
     public Button byId(String id) {

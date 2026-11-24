@@ -2,7 +2,6 @@
 package kioskvoip.bridge;
 
 import java.io.IOException;
-import java.util.Locale;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import kioskvoip.intercom.Call;
@@ -18,24 +17,19 @@ final class CallVideo implements RtspSource.Sink {
     /** Which callers get a picture, and from where. Immutable. */
     static final class Config {
         final String url;
-        private final String[] callers;
+        private final CallerMatch callers;
 
-        /** {@code callers}: comma-separated parts of the caller text (number or name); empty = every call. */
+        /** {@code callers}: see {@link CallerMatch}; empty = every call. */
         Config(String url, String callers) {
             this.url = url == null ? "" : url.trim();
-            String list = callers == null ? "" : callers.trim();
-            this.callers = list.isEmpty() ? new String[0] : list.toLowerCase(Locale.ROOT).split("\\s*,\\s*");
+            this.callers = new CallerMatch(callers);
         }
 
         boolean enabled() { return !url.isEmpty(); }
 
         /** True when this caller should get the picture. Caller text looks like {@code Name (**620)} or {@code 620}. */
         boolean wants(String caller) {
-            if (!enabled()) return false;
-            if (callers.length == 0) return true;
-            String c = caller == null ? "" : caller.toLowerCase(Locale.ROOT);
-            for (String part : callers) if (!part.isEmpty() && c.contains(part)) return true;
-            return false;
+            return enabled() && callers.matches(caller);
         }
     }
 
